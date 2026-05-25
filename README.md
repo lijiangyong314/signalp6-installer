@@ -8,19 +8,6 @@ Compatible with Ubuntu/Linux + Conda | Solves `libtiff.so.5`, PyTorch dependenci
 > **`fast-sequential` is NOT supported** – do not use `--mode fast-sequential`, as the required model files are missing.  
 > If you need the fast model, please wait for future updates or manually adjust the paths.
 
----
-
-## Table of Contents
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Problems Solved](#problems-solved)
-- [Usage Example](#usage-example)
-- [Troubleshooting Quick Reference](#troubleshooting-quick-reference)
-- [Manual Recovery (if script interrupted)](#manual-recovery-if-script-interrupted)
-- [License](#license)
-
----
-
 ## Prerequisites
 
 - **OS**: Ubuntu 18.04+ / Debian 10+ (other Linux distros may need adjustments)
@@ -39,7 +26,6 @@ Put the downloaded `signalp-6*.tar.gz` in `~/Desktop` or `~/Downloads`.
 
 ### Step 2: Download and run the script
 ```bash
-curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6.sh
-chmod +x install_signalp6.sh
-./install_signalp6.sh
-# SignalP 6.0 自动安装脚本
+curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_fixed.sh
+chmod +x install_signalp6_fixed.sh
+./install_signalp6_fixed.sh
