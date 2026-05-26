@@ -84,16 +84,24 @@ conda config --set show_channel_urls yes
 
 ### Step 2：下载并运行脚本
 
+**方式 A：仅下载脚本（最轻量）**
+
 ```bash
-# 下载脚本
 curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_fixed.sh
-
-# 赋予执行权限
 chmod +x install_signalp6_fixed.sh
-
-# 运行（全程约 5-15 分钟，取决于网络速度）
 ./install_signalp6_fixed.sh
 ```
+
+**方式 B：克隆完整仓库（含 README 文档 + 脚本，推荐）**
+
+```bash
+git clone https://github.com/lijiangyong314/signalp6-installer.git
+cd signalp6-installer
+chmod +x install_signalp6_fixed.sh
+./install_signalp6_fixed.sh
+```
+
+> 💡 **推荐方式 B**：一条命令拿到脚本 + 完整文档，以后 `git pull` 还能自动获取更新。
 
 ### Step 3：验证安装
 
