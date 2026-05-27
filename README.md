@@ -55,7 +55,7 @@ SignalP 6.0 是 DTU Health Tech 开发的**信号肽与跨膜区域预测工具*
 | **操作系统** | Ubuntu 18.04+ / Debian 10+ | 已测试 Ubuntu 22.04 |
 | **Conda** | [Miniconda3](https://docs.conda.io/en/latest/miniconda.html) 或 Anaconda | 必须预先安装 |
 | **网络连接** | 可访问 PyPI / conda-forge / PyTorch 下载源 | 🇨🇳 中国用户建议配置镜像（见下方） |
-| **SignalP 安装包** | 从 [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) 下载 `signalp-6*.tar.gz` | **选择 slow 版本** |
+| **SignalP 安装包** | 从 [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) 下载 `signalp-6*.tar.gz`（支持 **fast** 和 **slow-sequential** 版本） |
 
 ### 🇨🇳 中国用户网络优化（推荐）
 
@@ -411,8 +411,11 @@ conda env list | grep signalp    # 应该无输出
 ### Q1：为什么必须是 Python 3.7？
 SignalP 6.0 官方要求 Python 3.7，因为其依赖的某些库（特别是早期版本的 torch 和相关绑定）对更高版本 Python 存在兼容性问题。脚本强制创建 Python 3.7 环境。
 
-### Q2：为什么只支持 slow-sequential 模型？
-官方提供的 slow 版压缩包中仅包含 `sequential_models_signalp6` 目录。fast 模型的权重文件结构不同，且未在公开分发包中提供。如果你有 fast 模型文件，可以手动修改脚本中的模型路径。
+### Q2：fast 和 slow-sequential 有什么区别？
+- **fast**：使用蒸馏模型（`distilled_model_signalp6.pt`，~400MB），预测速度最快，精度略低，适合大规模筛选
+- **slow-sequential**：使用 7 个模型的集成（`sequential_models_signalp6/`，~2GB），精度最高但速度较慢（逐条处理），适合精细分析
+
+两种模式可以同时安装，脚本会自动检测你有哪些安装包并交互式选择。
 
 ### Q3：安装大概需要多久？
 取决于网络速度：
@@ -643,13 +646,13 @@ This script has been **iteratively tested and refined over 14 rounds (v1 → v14
 | **OS** | Ubuntu 18.04+ / Debian 10+ (tested on Ubuntu 22.04) |
 | **Conda** | [Miniconda3](https://docs.conda.io/en/latest/miniconda.html) or Anaconda pre-installed |
 | **Network** | Access to PyPI / conda-forge / PyTorch download servers |
-| **SignalP package** | Download `signalp-6*.tar.gz` (**slow version**) from [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) |
+| **SignalP package** | Download `signalp-6*.tar.gz` (**fast** and/or **slow-sequential** versions) from [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) |
 
 ### Getting the SignalP Package
 
 1. Visit [DTU Health Tech registration page](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0)
 2. Fill in the academic use application form (**free**, non-commercial academic use only)
-3. Download the **slow version** `signalp-6*.tar.gz` after receiving the download link
+3. Download **fast** and/or **slow-sequential** versions of `signalp-6*.tar.gz` after receiving the download link
 4. Place the archive in any of these directories: `~/Desktop`, `~/Downloads`, script directory, or anywhere (the script will search automatically)
 
 ---
@@ -728,6 +731,7 @@ If you see the SignalP 6.0 help message, installation is successful ✅
 ```bash
 conda activate signalp6
 signalp6 -i input.fasta -o output_dir -m slow-sequential
+signalp6 -i input.fasta -o output_dir -m fast
 signalp6 --help
 ```
 
@@ -743,7 +747,7 @@ signalp6 --help
 | `--batchsize` | Batch size (default 512) | `--batchsize 256` |
 | `--cpu` | Number of CPU threads | `--cpu 4` |
 
-### Example: Eukaryotic Protein Analysis
+### Example: Eukaryotic Protein Analysis (slow-sequential)
 ```bash
 conda activate signalp6
 
@@ -754,6 +758,17 @@ signalp6 \
   --organism euk \
   --format long \
   --cpu 4
+```
+
+### Example: Fast Prediction (fast)
+```bash
+conda activate signalp6
+
+signalp6 \
+  -i my_proteins.fasta \
+  -o signalp_results \
+  -m fast \
+  --format json
 ```
 
 ---
