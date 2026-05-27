@@ -1,7 +1,6 @@
 #!/bin/bash
 # ============================================================
 # SignalP 6.0 Fully Automated Installer (v14 English Release)
-# SignalP 6.0 Fully Automated Installer (v14 English Release)
 # ============================================================
 #
 # Supported modes:
@@ -675,29 +674,29 @@ for mode in "${TARGET_MODES[@]}"; do
 done
 
 # Model deployment summary
-log_info "╔═════════════════════════════════╗"
-log_info "║         Model Deployment Summary          ║"
-log_info "╠═════════════════════════════════╣"
+log_info "╔══════════════════════════════════════════════╗"
+log_info "║         Model Deployment Summary             ║"
+log_info "╠══════════════════════════════════════════════╣"
 if [ ${#DEPLOYED_MODES[@]} -gt 0 ]; then
     for dm in "${DEPLOYED_MODES[@]}"; do
         mt="${MODEL_FILE_MAP[$dm]}"
         if [ -d "$MW_DIR/$mt" ]; then
             fc=$(find "$MW_DIR/$mt" -type f | wc -l)
             ts=$(du -sb "$MW_DIR/$mt" 2>/dev/null | cut -f1)
-            log_info "║  ✅ ${dm}: ${mt}/ (${fc} files / files, $(format_size $ts))"
+            log_info "║  ✅ ${dm}: ${mt}/ (${fc} files, $(format_size $ts))  ║"
         elif [ -f "$MW_DIR/$mt" ]; then
             fs=$(stat -c%s "$MW_DIR/$mt" 2>/dev/null || stat -f%z "$MW_DIR/$mt" 2>/dev/null || echo 0)
-            log_info "║  ✅ ${dm}: ${mt} ($(format_size $fs))"
+            log_info "║  ✅ ${dm}: ${mt} ($(format_size $fs))  ║"
         fi
     done
 fi
 if [ ${#FAILED_MODES[@]} -gt 0 ]; then
     for fm in "${FAILED_MODES[@]}"; do
-        log_error "║  ❌ ${fm}: ${MODEL_FILE_MAP[$fm]} (missing)"
+        log_error "║  ❌ ${fm}: ${MODEL_FILE_MAP[$fm]} (missing)  ║"
     done
     log_warn "║  Missing modes unavailable, can add manually later"
 fi
-log_info "╚═════════════════════════════════╝"
+log_info "╚══════════════════════════════════════════════╝"
 
 # ---- [7/8] Environment diagnostics ----
 log_step "[7/8] Environment diagnostics"
@@ -787,7 +786,7 @@ if conda run -n signalp6 signalp6 --help > /dev/null 2>&1; then
     if [ ${#DEPLOYED_MODES[@]} -eq 1 ]; then
         echo "  signalp6 -i input.fasta -o results -m ${DEPLOYED_MODES[0]}" >&2
     else
-        echo "  signalp6 -i input.fasta -o results -m <${DEPLOYED_MODES[*]}>" >&2
+        echo "  signalp6 -i input.fasta -o results -m <$(IFS='|'; echo "${DEPLOYED_MODES[*]}")>" >&2
     fi
     echo "" >&2
     echo "Troubleshooting:" >&2
