@@ -26,9 +26,29 @@
 
 set -uo pipefail
 
+# 提前声明，避免 set -u 报 "未绑定的变量" / Pre-declare to avoid nounset errors
+TARGET_MODES=()
+CONDA_BASE=""
+
 WORK_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"
 
-# ---- 模式配置 / Mode configuration ----
+# ================================================================
+#  ★ 版本配置区 / Version Configuration
+#  SignalP 更新时只需修改此处 / Only modify here when SignalP updates
+# ================================================================
+PYTHON_VERSION="3.7"          # Python 版本 / Python version
+PYTORCH_VERSION="1.8.1"       # PyTorch 版本 / PyTorch version
+TORCHVISION_VERSION="0.9.1"   # TorchVision 版本 / TorchVision version
+TORCH_VARIANT="cpu"           # cpu 或 cu111 等 / cpu or cu111 etc.
+
+# 依赖版本约束 / Dependency version constraints
+NUMPY_CONSTRAINT=">=1.19,<2.0"
+MATPLOTLIB_CONSTRAINT=">3.3.2,<5.0"
+TQDM_CONSTRAINT="<4.66"
+PILLOW_CONSTRAINT="<11"
+
+# 模型文件名映射 / Model file mapping
+# 如果官方更新了文件名，修改此处即可 / If filenames change, update here
 declare -A MODEL_FILE_MAP=(
     ["fast"]="distilled_model_signalp6.pt"
     ["slow-sequential"]="sequential_models_signalp6"
@@ -52,22 +72,26 @@ save_state() {
     if [ ${#TARGET_MODES[@]} -gt 0 ] 2>/dev/null; then
         modes_str=$(IFS='|'; echo "${TARGET_MODES[*]}")
     fi
-    printf 'CURRENT_STEP=%s\nTARGET_MODES=%s\nCONDA_BASE=%s\nSCRIPT_VERSION=v15\nTIMESTAMP=%s\n' \
+    # 所有值必须加双引号，否则 source 时 bash 会把 | 解释为管道、空格后的内容当命令
+    # All values MUST be double-quoted, otherwise source treats | as pipe and spaces as cmd separators
+    printf 'CURRENT_STEP="%s"\nTARGET_MODES="%s"\nCONDA_BASE="%s"\nSCRIPT_VERSION="v15"\nTIMESTAMP="%s"\n' \
         "$step" "${modes_str}" "${CONDA_BASE:-}" "$(date '+%Y-%m-%d %H:%M:%S')" > "$STATE_FILE"
 }
 
 load_state() {
     [ ! -f "$STATE_FILE" ] && return 1
-    # shellcheck disable=SC1090
-    set +u
-    source "$STATE_FILE"
-    set -u
+    # 用 grep+sed 安全解析，避免 source 的 shell 注入风险
+    # Use grep+sed to safely parse, avoid source's shell injection risk
+    CURRENT_STEP=$(grep '^CURRENT_STEP=' "$STATE_FILE" | sed 's/^CURRENT_STEP=//' | tr -d '"')
+    TARGET_MODES=$(grep '^TARGET_MODES=' "$STATE_FILE" | sed 's/^TARGET_MODES=//' | tr -d '"')
+    CONDA_BASE=$(grep '^CONDA_BASE=' "$STATE_FILE" | sed 's/^CONDA_BASE=//' | tr -d '"')
+    TIMESTAMP=$(grep '^TIMESTAMP=' "$STATE_FILE" | sed 's/^TIMESTAMP=//' | tr -d '"')
     # Convert TARGET_MODES string to array (pipe-delimited)
     if [ -n "${TARGET_MODES:-}" ]; then
         IFS='|' read -ra TARGET_MODES <<< "$TARGET_MODES"
     fi
-    # Keep a string copy for display
-    TARGET_MODES_STR="${TARGET_MODES:-}"
+    # Keep a string copy for display (use [*] to get ALL elements)
+    TARGET_MODES_STR="${TARGET_MODES[*]}"
     return 0
 }
 
@@ -193,6 +217,8 @@ format_size() {
 }
 
 # ---- 从文件名解析模式和版本 / Parse mode and version from filename ----
+# 支持 signalp-6.0h.fast.tar.gz 和 signalp-7.1.fast.tar.gz 等格式
+# Supports signalp-6.0h.fast.tar.gz, signalp-7.1.fast.tar.gz, etc.
 parse_tar_filename() {
     local filename
     filename=$(basename "$1")
@@ -219,13 +245,13 @@ find_and_dedup_tars() {
         [ -d "$d" ] || continue
         while IFS= read -r -d '' f; do
             all_tars+=("$f")
-        done < <(find "$d" -maxdepth 3 -name "signalp-6*.tar.gz" -print0 2>/dev/null)
+        done < <(find "$d" -maxdepth 3 -name "signalp-[0-9]*.tar.gz" -print0 2>/dev/null)
     done
 
     # 全盘搜索（限时 30 秒）/ Full disk search (30s timeout)
     while IFS= read -r -d '' f; do
         all_tars+=("$f")
-    done < <(timeout 30 find /home -maxdepth 5 -name "signalp-6*.tar.gz" -print0 2>/dev/null || true)
+    done < <(timeout 30 find /home -maxdepth 5 -name "signalp-[0-9]*.tar.gz" -print0 2>/dev/null || true)
 
     if [ ${#all_tars[@]} -eq 0 ]; then
         return 1
@@ -475,11 +501,21 @@ save_state "1"
 log_step "[1/8] 创建 Python 环境 / Create Python environment"
 
 if conda env list 2>/dev/null | grep -q "^signalp6 "; then
-    log_skip "signalp6 环境已存在，跳过 / signalp6 env exists, skipping"
-    log_info "（如需重建 / If rebuild needed: conda remove -n signalp6 --all -y）"
+    # 环境目录存在，但可能因中断而残缺，需验证 python 是否可用
+    # Env dir exists but may be broken from interruption, verify python works
+    eval "$(conda shell.bash hook 2>/dev/null)"
+    if conda run -n signalp6 python --version &>/dev/null; then
+        log_skip "signalp6 环境已存在且可用，跳过 / signalp6 env exists and healthy, skipping"
+        log_info "（如需重建 / If rebuild needed: conda remove -n signalp6 --all -y）"
+    else
+        log_warn "signalp6 环境存在但 python 不可用，将删除重建 / signalp6 env broken (no python), removing..."
+        conda remove -n signalp6 --all -y
+        log_info "创建 signalp6 环境（python=${PYTHON_VERSION}）/ Creating signalp6 env (python=${PYTHON_VERSION})..."
+        conda create -n signalp6 python="${PYTHON_VERSION}" -c conda-forge -y
+    fi
 else
-    log_info "创建 signalp6 环境（python=3.7）/ Creating signalp6 env (python=3.7)..."
-    conda create -n signalp6 python=3.7 -c conda-forge -y
+    log_info "创建 signalp6 环境（python=${PYTHON_VERSION}）/ Creating signalp6 env (python=${PYTHON_VERSION})..."
+    conda create -n signalp6 python="${PYTHON_VERSION}" -c conda-forge -y
 fi
 
 # 初始化 conda 激活函数 / Initialize conda activation function
@@ -510,7 +546,7 @@ DEDUP_FILE=$(find_and_dedup_tars)
 DEDUP_RC=$?
 if [ $DEDUP_RC -ne 0 ] || [ ! -s "$DEDUP_FILE" ]; then
     rm -f "$DEDUP_FILE"
-    log_error "未找到 signalp-6*.tar.gz / signalp-6*.tar.gz not found"
+    log_error "未找到 signalp-*.tar.gz / signalp-*.tar.gz not found"
     echo "" >&2
     read -p "请输入压缩包完整路径 / Please enter full path to tarball: " USER_INPUT
     if [ -f "$USER_INPUT" ] && [[ "$USER_INPUT" == *.tar.gz ]]; then
@@ -697,8 +733,10 @@ save_state "4"
 log_step "[4/8] 编译安装 / Build and install"
 
 # ★ 幂等检查：如果 signalp 包已安装，跳过 / Idempotent: skip if signalp package installed
+# 动态查找 .egg 目录，不硬编码版本号 / Dynamically find .egg dir, no hardcoded version
 SITE_PKGS_CHECK=$(python -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || echo "")
-if [ -n "$SITE_PKGS_CHECK" ] && [ -d "$SITE_PKGS_CHECK/signalp6-6.0+h-py3.7.egg/signalp" ]; then
+SIGNALP6_EGG_DIR=$(find "${SITE_PKGS_CHECK:-/dev/null}" -maxdepth 1 -type d -name "signalp6*.egg" 2>/dev/null | head -n1)
+if [ -n "$SIGNALP6_EGG_DIR" ] && [ -d "$SIGNALP6_EGG_DIR/signalp" ]; then
     log_skip "signalp 包已安装，跳过编译 / signalp package already installed, skipping build"
 elif pip show signalp6 > /dev/null 2>&1; then
     log_skip "signalp 包已安装，跳过编译 / signalp package already installed, skipping build"
@@ -710,7 +748,8 @@ else
     set +e
     timeout 300 python setup.py install 2>&1 | tee /tmp/signalp_install.log
     INSTALL_RC=${PIPESTATUS[0]}
-    set -e
+    # Restore original state: script runs with set -uo pipefail (NO -e)
+    set +e
 
     if [ $INSTALL_RC -eq 124 ]; then
         log_warn "安装超时 300 秒被终止（正常现象，安装已完成）/ Install timed out at 300s (normal, install complete)"
@@ -721,7 +760,8 @@ else
     fi
 
     # 验证安装 / Verify install
-    if [ -d "${SITE_PKGS_CHECK:-/dev/null}/signalp6-6.0+h-py3.7.egg/signalp" ] || \
+    SIGNALP6_EGG_DIR=$(find "${SITE_PKGS_CHECK:-/dev/null}" -maxdepth 1 -type d -name "signalp6*.egg" 2>/dev/null | head -n1)
+    if [ -n "$SIGNALP6_EGG_DIR" ] && [ -d "$SIGNALP6_EGG_DIR/signalp" ] || \
        pip show signalp6 > /dev/null 2>&1; then
         log_info "✅ signalp 包已安装 / signalp package installed"
     else
@@ -755,8 +795,7 @@ else
     conda install -c conda-forge pillow -y 2>/dev/null || true
     if ! python -c "from PIL import Image" 2>/dev/null; then
         log_warn "  conda 安装 Pillow 失败，尝试 pip / conda Pillow failed, trying pip"
-        pip install pillow 2>/dev/null || true
-        sudo apt-get install -y libtiff5 2>/dev/null || true
+        pip install "pillow${PILLOW_CONSTRAINT}" 2>/dev/null || true
     fi
     python -c "from PIL import Image; print('  Pillow ✅')" 2>/dev/null || log_warn "Pillow 验证失败 / Pillow verification failed"
 fi
@@ -768,7 +807,7 @@ if python -c "import matplotlib" 2>/dev/null; then
     log_skip "  matplotlib 已就绪 / matplotlib already installed"
 else
     MATPLOTLIB_INSTALLED=false
-    pip install "matplotlib>3.3.2,<4.0" 2>/dev/null && MATPLOTLIB_INSTALLED=true || true
+    pip install "matplotlib${MATPLOTLIB_CONSTRAINT}" 2>/dev/null && MATPLOTLIB_INSTALLED=true || true
     if [ "$MATPLOTLIB_INSTALLED" = "false" ]; then
         log_warn "  pip 安装 matplotlib 失败，尝试 conda / pip matplotlib failed, trying conda..."
         conda install -c conda-forge matplotlib -y 2>/dev/null || true
@@ -777,32 +816,32 @@ else
 fi
 save_state "5c"
 
-# 5c. NumPy（必须 <2.0）/ NumPy (must be <2.0 for Python 3.7)
-log_info "[5c] 安装 NumPy（<2.0）/ Installing NumPy (<2.0)..."
+# 5c. NumPy（必须 <2.0）/ NumPy (must be <2.0 for older Python)
+log_info "[5c] 安装 NumPy / Installing NumPy..."
 if python -c "import numpy" 2>/dev/null; then
     log_skip "  NumPy 已就绪 / NumPy already installed"
 else
-    pip install "numpy>=1.19,<1.25" || true
+    pip install "numpy${NUMPY_CONSTRAINT}" || true
     python -c "import numpy; print(f'  NumPy {numpy.__version__} ✅')" 2>/dev/null || log_warn "NumPy 验证失败 / NumPy verification failed"
 fi
 save_state "5d"
 
-# 5d. PyTorch 1.8.1 CPU 版 / PyTorch 1.8.1 CPU
-log_info "[5d] 安装 PyTorch 1.8.1 CPU 版 / Installing PyTorch 1.8.1 CPU..."
+# 5d. PyTorch / PyTorch
+log_info "[5d] 安装 PyTorch ${PYTORCH_VERSION} ${TORCH_VARIANT} 版 / Installing PyTorch ${PYTORCH_VERSION} ${TORCH_VARIANT}..."
 if python -c "import torch" 2>/dev/null; then
     log_skip "  PyTorch 已就绪 / PyTorch already installed"
 else
     PYTORCH_INSTALLED=false
 
-    log_info "  尝试 pip 安装 torch 1.8.1+cpu... / Trying pip install torch 1.8.1+cpu..."
-    pip install torch==1.8.1+cpu torchvision==0.9.1+cpu \
+    log_info "  尝试 pip 安装 torch ${PYTORCH_VERSION}+${TORCH_VARIANT}... / Trying pip install torch ${PYTORCH_VERSION}+${TORCH_VARIANT}..."
+    pip install torch==${PYTORCH_VERSION}+${TORCH_VARIANT} torchvision==${TORCHVISION_VERSION}+${TORCH_VARIANT} \
         -f https://download.pytorch.org/whl/torch_stable.html 2>/dev/null
     if python -c "import torch; print(f'  PyTorch {torch.__version__} ✅')" 2>/dev/null; then
         log_info "  pip 安装成功，跳过 conda 安装 / pip install succeeded, skipping conda"
         PYTORCH_INSTALLED=true
     else
         log_warn "  pip 安装失败，尝试 conda 安装... / pip failed, trying conda..."
-        conda install -c pytorch pytorch==1.8.1 cpuonly -y || true
+        conda install -c pytorch pytorch==${PYTORCH_VERSION} ${TORCH_VARIANT}only -y || true
         if python -c "import torch; print(f'  PyTorch {torch.__version__} ✅')" 2>/dev/null; then
             PYTORCH_INSTALLED=true
         fi
@@ -811,17 +850,17 @@ else
     if [ "$PYTORCH_INSTALLED" = "false" ]; then
         log_error "PyTorch 安装失败 / PyTorch installation failed，请手动安装 / please install manually"
         echo "  参考命令 / Reference command:" >&2
-        echo "    pip install torch==1.8.1+cpu torchvision==0.9.1+cpu -f https://download.pytorch.org/whl/torch_stable.html" >&2
+        echo "    pip install torch==${PYTORCH_VERSION}+${TORCH_VARIANT} torchvision==${TORCHVISION_VERSION}+${TORCH_VARIANT} -f https://download.pytorch.org/whl/torch_stable.html" >&2
     fi
 fi
 save_state "5e"
 
-# 5e. tqdm（必须 <4.60）/ tqdm (must be <4.60 for Python 3.7)
-log_info "[5e] 安装 tqdm（兼容 Python 3.7）/ Installing tqdm (Python 3.7 compat)..."
+# 5e. tqdm（兼容旧 Python）/ tqdm (compat with older Python)
+log_info "[5e] 安装 tqdm / Installing tqdm..."
 if python -c "import tqdm" 2>/dev/null; then
     log_skip "  tqdm 已就绪 / tqdm already installed"
 else
-    pip install "tqdm<4.60" || true
+    pip install "tqdm${TQDM_CONSTRAINT}" || true
     python -c "import tqdm; print('  tqdm ✅')" 2>/dev/null || log_warn "tqdm 验证失败 / tqdm verification failed"
 fi
 save_state "5f"
@@ -835,10 +874,10 @@ else
     python -c "import signalp" 2>&1 | tail -10
     echo "" >&2
     log_warn "逐个检查依赖状态 / Checking dependencies one by one:" >&2
-    python -c "import torch; print('  torch ✅')"      2>/dev/null || log_error "  torch ❌ → pip install torch==1.8.1+cpu -f https://download.pytorch.org/whl/torch_stable.html"
+    python -c "import torch; print('  torch ✅')"      2>/dev/null || log_error "  torch ❌ → pip install torch==${PYTORCH_VERSION}+${TORCH_VARIANT} -f https://download.pytorch.org/whl/torch_stable.html"
     python -c "from PIL import Image; print('  PIL ✅')" 2>/dev/null || log_error "  Pillow ❌ → conda install -c conda-forge pillow -y"
-    python -c "import matplotlib; print('  matplotlib ✅')" 2>/dev/null || log_error "  matplotlib ❌ → pip install 'matplotlib>3.3.2,<4.0'"
-    python -c "import tqdm; print('  tqdm ✅')"        2>/dev/null || log_error "  tqdm ❌ → pip install 'tqdm<4.60'"
+    python -c "import matplotlib; print('  matplotlib ✅')" 2>/dev/null || log_error "  matplotlib ❌ → pip install 'matplotlib${MATPLOTLIB_CONSTRAINT}'"
+    python -c "import tqdm; print('  tqdm ✅')"        2>/dev/null || log_error "  tqdm ❌ → pip install 'tqdm${TQDM_CONSTRAINT}'"
     echo "" >&2
     log_error "请根据以上提示手动安装缺失包后重试 / Please install missing packages manually and retry"
     log_info "💡 提示：你可以直接重新运行此脚本，已完成的步骤会自动跳过 / Tip: re-run this script, completed steps will be skipped automatically"
@@ -874,6 +913,36 @@ fi
 DEPLOYED_MODES=()
 FAILED_MODES=()
 
+# ★ 动态发现模型文件名 / Dynamic model file discovery
+# 如果 models/ 目录中的文件名和 MODEL_FILE_MAP 不匹配，自动更新映射
+# If filenames in models/ don't match MODEL_FILE_MAP, auto-update the mapping
+for mode in "${TARGET_MODES[@]}"; do
+    models_dir="${MODELS_DIRS[$mode]:-}"
+    if [ -z "$models_dir" ] || [ ! -d "$models_dir" ]; then
+        continue
+    fi
+    expected="${MODEL_FILE_MAP[$mode]}"
+    if [ -e "$models_dir/$expected" ]; then
+        continue  # 预期文件存在，无需调整 / Expected file exists, no adjustment needed
+    fi
+    # 预期文件不存在，尝试从 models/ 目录自动发现 / Expected not found, try auto-discovery
+    if [ "$mode" = "fast" ]; then
+        # fast: 寻找 .pt 文件（排除 README） / fast: look for .pt file (exclude README)
+        FOUND_PT=$(find "$models_dir" -maxdepth 1 -name "*.pt" -not -name "README*" -print -quit 2>/dev/null)
+        if [ -n "$FOUND_PT" ]; then
+            MODEL_FILE_MAP[$mode]="$(basename "$FOUND_PT")"
+            log_warn "  ⚡ 动态发现 fast 模型: $(basename "$FOUND_PT")（替代 / replacing $expected）"
+        fi
+    elif [ "$mode" = "slow-sequential" ]; then
+        # slow-sequential: 寻找包含 sequential 的目录 / slow-sequential: find dir with "sequential" in name
+        FOUND_DIR=$(find "$models_dir" -maxdepth 1 -type d -name "*sequential*" -print -quit 2>/dev/null)
+        if [ -n "$FOUND_DIR" ]; then
+            MODEL_FILE_MAP[$mode]="$(basename "$FOUND_DIR")"
+            log_warn "  ⚡ 动态发现 slow-sequential 模型: $(basename "$FOUND_DIR")（替代 / replacing $expected）"
+        fi
+    fi
+done
+
 for mode in "${TARGET_MODES[@]}"; do
     model_target="${MODEL_FILE_MAP[$mode]}"
     models_dir="${MODELS_DIRS[$mode]:-}"
@@ -881,19 +950,41 @@ for mode in "${TARGET_MODES[@]}"; do
     log_info "──────────────────────────────"
     log_info "部署 ${mode} 模型 / Deploying ${mode} model: ${model_target}"
 
-    # ★ 幂等检查：模型已部署则跳过 / Idempotent: skip if model already deployed
+    # ★ 幂等检查：模型已部署且与源一致则跳过 / Idempotent: skip if deployed AND matches source
     if [ -d "$MW_DIR/$model_target" ] || [ -f "$MW_DIR/$model_target" ]; then
-        if [ -d "$MW_DIR/$model_target" ]; then
-            FC=$(find "$MW_DIR/$model_target" -type f | wc -l)
-            TS=$(du -sb "$MW_DIR/$model_target" 2>/dev/null | cut -f1)
-            log_skip "  ${mode} 模型已部署（${FC} 文件 / files, $(format_size $TS)），跳过 / already deployed, skipping"
+        # 验证完整性：对比源和目标的文件数/大小，避免中断后残留损坏文件
+        # Verify integrity: compare file count/size to detect interrupted copies
+        SKIP_DEPLOY=true
+        if [ -n "$models_dir" ] && [ -d "$models_dir" ]; then
+            if [ -f "$models_dir/$model_target" ] || [ -d "$models_dir/$model_target" ]; then
+                SRC_SIZE=$(du -sb "$models_dir/$model_target" 2>/dev/null | cut -f1)
+                DST_SIZE=$(du -sb "$MW_DIR/$model_target" 2>/dev/null | cut -f1)
+                SRC_FC=$(find "$models_dir/$model_target" -type f 2>/dev/null | wc -l)
+                DST_FC=$(find "$MW_DIR/$model_target" -type f 2>/dev/null | wc -l)
+                if [ "$SRC_SIZE" = "$DST_SIZE" ] && [ "$SRC_FC" = "$DST_FC" ]; then
+                    log_skip "  ${mode} 模型已部署且完整（${DST_FC} 文件 / files, $(format_size $DST_SIZE)），跳过 / already deployed, skipping"
+                else
+                    log_warn "  ${mode} 模型文件不完整（源 / src: ${SRC_FC} 文件 / files $(format_size $SRC_SIZE), 目标 / dst: ${DST_FC} 文件 / files $(format_size $DST_SIZE)），将重新复制 / incomplete, re-copying"
+                    rm -rf "$MW_DIR/$model_target"
+                    SKIP_DEPLOY=false
+                fi
+            fi
         else
-            FS=$(stat -c%s "$MW_DIR/$model_target" 2>/dev/null || stat -f%z "$MW_DIR/$model_target" 2>/dev/null || echo 0)
-            log_skip "  ${mode} 模型已部署（$(format_size $FS)），跳过 / already deployed, skipping"
+            # 源目录不可用，仅检查目标存在 / Source not available, only check destination exists
+            if [ -d "$MW_DIR/$model_target" ]; then
+                FC=$(find "$MW_DIR/$model_target" -type f | wc -l)
+                TS=$(du -sb "$MW_DIR/$model_target" 2>/dev/null | cut -f1)
+                log_skip "  ${mode} 模型已部署（${FC} 文件 / files, $(format_size $TS)），跳过 / already deployed, skipping"
+            else
+                FS=$(stat -c%s "$MW_DIR/$model_target" 2>/dev/null || stat -f%z "$MW_DIR/$model_target" 2>/dev/null || echo 0)
+                log_skip "  ${mode} 模型已部署（$(format_size $FS)），跳过 / already deployed, skipping"
+            fi
         fi
-        DEPLOYED_MODES+=("$mode")
-        echo "" >&2
-        continue
+        if [ "$SKIP_DEPLOY" = "true" ]; then
+            DEPLOYED_MODES+=("$mode")
+            echo "" >&2
+            continue
+        fi
     fi
 
     MODEL_SRC=""
@@ -1020,7 +1111,7 @@ log_step "[7/8] 环境诊断 / Environment diagnostics"
 cat > "$WORK_DIR/check_signalp_env.sh" << 'DIAG_SCRIPT'
 #!/bin/bash
 echo "╔════════════════════════════════════════════════════════╗"
-echo "║           SignalP 6.0 环境诊断报告 (v15)                ║"
+echo "║           SignalP 环境诊断报告 (v15)                    ║"
 echo "╚════════════════════════════════════════════════════════╝"
 echo ""
 echo "1. Python 环境 / Python environment:"
@@ -1045,20 +1136,27 @@ if [ -n "$SIGNALP_PATH" ]; then
     if [ -d "$MW_DIR" ]; then
         echo "   目录 / Dir: $MW_DIR"
         echo ""
-        # fast
-        if [ -f "$MW_DIR/distilled_model_signalp6.pt" ]; then
-            SIZE=$(du -sh "$MW_DIR/distilled_model_signalp6.pt" 2>/dev/null | cut -f1)
-            echo "   ✅ fast (distilled_model_signalp6.pt) - $SIZE"
-        else
-            echo "   ❌ fast (distilled_model_signalp6.pt) - 缺失 / missing"
-        fi
-        # slow-sequential
-        if [ -d "$MW_DIR/sequential_models_signalp6" ]; then
-            FILE_COUNT=$(find "$MW_DIR/sequential_models_signalp6" -type f | wc -l)
-            TOTAL_SIZE=$(du -sh "$MW_DIR/sequential_models_signalp6" 2>/dev/null | cut -f1)
-            echo "   ✅ slow-sequential (sequential_models_signalp6/) - ${FILE_COUNT} 文件 / files, ${TOTAL_SIZE}"
-        else
-            echo "   ❌ slow-sequential (sequential_models_signalp6/) - 缺失 / missing"
+        # 动态列出 model_weights 内容，不硬编码文件名
+        # Dynamically list model_weights contents, no hardcoded filenames
+        for item in "$MW_DIR"/*; do
+            [ -e "$item" ] || continue
+            name=$(basename "$item")
+            if [ "$name" = "README.md" ]; then
+                continue
+            fi
+            if [ -d "$item" ]; then
+                FILE_COUNT=$(find "$item" -type f | wc -l)
+                TOTAL_SIZE=$(du -sh "$item" 2>/dev/null | cut -f1)
+                echo "   ✅ ${name}/ - ${FILE_COUNT} 文件 / files, ${TOTAL_SIZE}"
+            elif [ -f "$item" ]; then
+                SIZE=$(du -sh "$item" 2>/dev/null | cut -f1)
+                echo "   ✅ ${name} - ${SIZE}"
+            fi
+        done
+        # 检查是否为空 / Check if empty
+        NON_README=$(find "$MW_DIR" -maxdepth 1 -not -name "README.md" -not -name "model_weights" -not -name "." -print -quit 2>/dev/null)
+        if [ -z "$NON_README" ]; then
+            echo "   ⚠️  空壳目录（仅有 README.md）/ Empty dir (README.md only)"
         fi
     else
         echo "   ❌ model_weights 目录缺失 / model_weights dir missing"
@@ -1083,8 +1181,8 @@ log_step "[8/8] 最终验证 / Final verification"
 
 if conda run -n signalp6 signalp6 --help > /dev/null 2>&1; then
     echo "" >&2
-    echo "🎉🎉🎉 安装成功！SignalP 6.0 已就绪 🎉🎉🎉" >&2
-    echo "🎉🎉🎉 Installation successful! SignalP 6.0 is ready 🎉🎉🎉" >&2
+    echo "🎉🎉🎉 安装成功！SignalP 已就绪 🎉🎉🎉" >&2
+    echo "🎉🎉🎉 Installation successful! SignalP is ready 🎉🎉🎉" >&2
     echo "" >&2
     echo "已安装模式 / Installed modes:" >&2
     for dm in "${DEPLOYED_MODES[@]}"; do

@@ -29,9 +29,20 @@ conda 自动安装, libtiff.so.5 修复, PyTorch CPU, fast 模型, slow-sequenti
 
 SignalP 6.0 是 DTU Health Tech 开发的**信号肽与跨膜区域预测工具**，基于深度学习，是目前该领域最先进的工具之一。但官方只提供了手动安装步骤，在 Ubuntu/Linux + Conda 环境下存在**多个已知的兼容性问题**，手动排查非常耗时。
 
-本脚本经过 **14 轮迭代验证**（v1 → v14），将繁琐的 8 步手动安装简化为**一条命令**，并自动修复了所有已知故障点。v14 新增 **fast + slow-sequential 双模式支持**、智能压缩包去重、交互式模式选择等功能。
+本脚本经过 **15 轮迭代验证**（v1 → v15），将繁琐的 8 步手动安装简化为**一条命令**，并自动修复了所有已知故障点。
 
 > 💡 **适用场景**：生物信息学研究、蛋白质序列分析、信号肽预测、跨膜蛋白鉴定
+
+---
+
+## 🆕 v15 新特性
+
+| 特性 | 说明 |
+|------|------|
+| **🔄 断点续装** | 安装中断后（网络超时、Ctrl+C、关机等）再次运行脚本，自动从断点恢复，无需从头开始 |
+| **📦 Conda 自动安装** | 未安装 Conda 时自动下载并安装 Miniconda3，无需预先准备 |
+| **🔮 前向兼容** | 动态发现 .egg 目录、模型文件、压缩包；版本集中配置，SignalP 更新后只需改顶部几行 |
+| **🐛 Bug 修复** | 修复 nounset、shell 注入、环境健康检查、模式显示、模型完整性校验、`set -e` 意外启用等 7 个 bug |
 
 ---
 
@@ -40,9 +51,10 @@ SignalP 6.0 是 DTU Health Tech 开发的**信号肽与跨膜区域预测工具*
 | 项目 | 说明 |
 |------|------|
 | **支持模型** | ✅ `fast`（蒸馏模型，速度最快）和 `slow-sequential`（顺序模型，最高精度） |
-| **智能识别** | ✅ 自动解析 `signalp-6*.tar.gz` 文件名，按模式分组并保留最高版本 |
+| **智能识别** | ✅ 自动解析 `signalp-[0-9]*.tar.gz` 文件名，按模式分组并保留最高版本 |
 | **操作系统** | Ubuntu 18.04+ / Debian 10+（其他 Linux 发行版可能需调整） |
 | **Python** | 必须为 **CPython 3.7**（PyPy 不支持） |
+| **Conda** | Miniconda3 / Anaconda（**未安装时脚本会自动安装**） |
 
 > 📌 脚本会自动扫描目录中的所有 SignalP 压缩包，交互式让你选择安装哪些模式。如果同模式有多个版本，自动保留最高版本。
 
@@ -53,9 +65,9 @@ SignalP 6.0 是 DTU Health Tech 开发的**信号肽与跨膜区域预测工具*
 | 条件 | 要求 | 说明 |
 |------|------|------|
 | **操作系统** | Ubuntu 18.04+ / Debian 10+ | 已测试 Ubuntu 22.04 |
-| **Conda** | [Miniconda3](https://docs.conda.io/en/latest/miniconda.html) 或 Anaconda | 必须预先安装 |
+| **Conda** | Miniconda3 / Anaconda | **可选** — 未安装时脚本会自动下载安装 |
 | **网络连接** | 可访问 PyPI / conda-forge / PyTorch 下载源 | 🇨🇳 中国用户建议配置镜像（见下方） |
-| **SignalP 安装包** | 从 [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) 下载 `signalp-6*.tar.gz`（支持 **fast** 和 **slow-sequential** 版本） |
+| **SignalP 安装包** | 从 [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) 下载 `signalp-[0-9]*.tar.gz`（支持 **fast** 和 **slow-sequential** 版本） |
 
 ### 🇨🇳 中国用户网络优化（推荐）
 
@@ -76,7 +88,7 @@ conda config --set show_channel_urls yes
 
 1. 访问 [DTU Health Tech 注册页面](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0)
 2. 填写学术用途申请表（**免费**，仅限非商业学术用途）
-3. 收到下载链接后，下载 `signalp-6*.tar.gz`（支持 **fast** 和 **slow-sequential** 版本，可同时下载多个）
+3. 收到下载链接后，下载 `signalp-[0-9]*.tar.gz`（支持 **fast** 和 **slow-sequential** 版本，可同时下载多个）
 4. 将压缩包放置于以下任一目录：
    - `~/Desktop` 或 `~/桌面`
    - `~/Downloads` 或 `~/下载`
@@ -91,24 +103,24 @@ conda config --set show_channel_urls yes
 
 ### Step 1：准备安装包
 
-将下载的 `signalp-6*.tar.gz` 放入上述目录之一。
+将下载的 `signalp-[0-9]*.tar.gz` 放入上述目录之一。
 
 ### Step 2：下载并运行脚本
 
 **方式 A：仅下载脚本（中文双语版 / Bilingual）**
 
 ```bash
-curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v14.sh
-chmod +x install_signalp6_v14.sh
-./install_signalp6_v14.sh
+curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v15.sh
+chmod +x install_signalp6_v15.sh
+./install_signalp6_v15.sh
 ```
 
 **方式 A2：仅下载脚本（英文版 / English）**
 
 ```bash
-curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v14_en.sh
-chmod +x install_signalp6_v14_en.sh
-./install_signalp6_v14_en.sh
+curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v15_en.sh
+chmod +x install_signalp6_v15_en.sh
+./install_signalp6_v15_en.sh
 ```
 
 **方式 B：克隆完整仓库（含 README 文档 + 脚本，推荐）**
@@ -116,8 +128,8 @@ chmod +x install_signalp6_v14_en.sh
 ```bash
 git clone https://github.com/lijiangyong314/signalp6-installer.git
 cd signalp6-installer
-chmod +x install_signalp6_v14.sh
-./install_signalp6_v14.sh
+chmod +x install_signalp6_v15.sh
+./install_signalp6_v15.sh
 ```
 
 > 💡 **推荐方式 B**：一条命令拿到脚本 + 完整文档，以后 `git pull` 还能自动获取更新。
@@ -133,18 +145,42 @@ signalp6 --help
 
 ---
 
+## 🔄 断点续装
+
+v15 新增断点续装功能。安装过程中无论因何种原因中断（网络超时、Ctrl+C、关机等），再次运行脚本时会显示：
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║     检测到未完成的安装 / Previous incomplete install       ║
+╠═══════════════════════════════════════════════════════════╣
+║  中断位置 / Interrupted at: 安装所有依赖 / Install dependencies
+║  时间 / Time: 2026-05-27 20:09:52
+║  模式 / Modes: fast slow-sequential
+╚═══════════════════════════════════════════════════════════╝
+
+  [1] 继续上次安装 / Resume from last checkpoint
+  [2] 重新安装 / Fresh install (删除已有环境重新开始)
+  [3] 退出 / Exit
+
+请选择 [1-3] / Select [1-3]:
+```
+
+选择 `[1]` 即可从断点无缝恢复，已完成的步骤自动跳过。
+
+---
+
 ## 🔍 脚本执行流程详解
 
 脚本共分为 **8 个步骤**，每步都有详细的日志输出和错误处理：
 
 ```
-[0/8] 初始化 Conda          ← 检测 Conda 路径 + 激活 shell hook
+[0/8] 初始化 Conda          ← 检测 Conda 路径 + 激活 shell hook（未安装则自动下载 Miniconda3）
 [1/8] 创建 Python 3.7 环境   ← 创建 signalp6 conda 环境（CPython）
-[2/8] 定位 signalp-6*.tar.gz ← 自动搜索常用目录 + 全盘扫描 + 手动输入兜底
-[3/8] 解压安装包            ← 动态搜索 setup.py（兼容非标准目录名）
+[2/8] 查找压缩包（智能去重） ← 自动搜索常用目录 + 全盘扫描 + 手动输入兜底
+[3/8] 按需解压安装包        ← 动态搜索 setup.py（兼容非标准目录名）
 [4/8] 编译安装              ← timeout 300s 限时执行 setup.py install
-[5/8] 安装所有依赖           ← Pillow → matplotlib → NumPy → PyTorch → tqdm
-[6/8] 部署模型权重          ← 自动查找 sequential_models_signalp6 目录
+[5/8] 安装所有依赖           ← Pillow → matplotlib → NumPy → PyTorch → tqdm → import 验证
+[6/8] 部署模型权重          ← 完整性校验 + 动态发现 fallback
 [7/8] 环境诊断              ← 生成 check_signalp_env.sh 诊断脚本
 [8/8] 最终验证             ← 执行 signalp6 --help
 ```
@@ -153,20 +189,20 @@ signalp6 --help
 
 | 步骤 | 功能 | 关键技术细节 |
 |:----:|------|-------------|
-| **0** | 初始化 Conda | 使用 `eval "$(conda shell.bash hook)"` 解决 non-interactive shell 中 activate 无效的问题 |
-| **1** | 创建环境 | 强制检查 Python 实现为 CPython（PyPy 不兼容 PyTorch） |
-| **2** | 定位压缩包 | 多级搜索策略：常用目录 → 工作目录 → `/home` 全盘搜索（限时 30 秒）→ 手动输入 |
-| **3** | 解压 | 用 `find -name setup.py` 动态定位源码目录，不硬编码路径 |
-| **4** | 编译安装 | `timeout 300` 防卡死 + `set +e` 防 timeout 退出码导致脚本中断 |
+| **0** | 初始化 Conda | 常见路径搜索 + 未安装时自动下载 Miniconda3 + `eval "$(conda shell.bash hook)"` |
+| **1** | 创建环境 | 强制检查 Python 实现为 CPython（PyPy 不兼容 PyTorch），已存在且健康则跳过 |
+| **2** | 定位压缩包 | 多级搜索策略：常用目录 → 工作目录 → `/home` 全盘搜索（限时 30 秒）→ 手动输入；智能去重保留最高版本 |
+| **3** | 解压 | 用 `find -name setup.py` 动态定位源码目录，不硬编码路径；幂等（已解压则跳过） |
+| **4** | 编译安装 | `timeout 300` 防卡死 + `PIPESTATUS` 正确获取退出码 + `.egg` 目录动态发现 |
 | **5a** | **Pillow 修复** | **核心修复**：卸载 pip 版 Pillow → 改装 conda-forge 版，彻底解决 `libtiff.so.5` 缺失问题 |
-| **5b** | matplotlib | 优先 pip 安装（走国内镜像），回退 conda |
-| **5c** | NumPy | 版本限制 `<2.0` 以兼容 Python 3.7 |
-| **5d** | PyTorch | 优先 pip 安装 1.8.1+cpu（CPU only），所有命令加 `\|\| true` 防退出码异常 |
-| **5e** | tqdm | 版本限制 `<4.60`（4.67+ 使用了 Python 3.8+ 的 `importlib.metadata`） |
+| **5b** | matplotlib | 版本约束 `>3.3.2,<5.0`，pip 优先（走国内镜像），回退 conda |
+| **5c** | NumPy | 版本限制 `>=1.19,<2.0` 以兼容 Python 3.7，已安装则跳过 |
+| **5d** | PyTorch | 优先 pip 安装 1.8.1+cpu（CPU only），失败自动回退 conda |
+| **5e** | tqdm | 版本限制 `<4.66`（4.67+ 使用了 Python 3.8+ 的 `importlib.metadata`） |
 | **5f** | import 验证 | 所有依赖就绪后才尝试 `import signalp`，失败时逐项提示缺失项 |
-| **6** | 模型权重 | 多路径搜索解压包内、桌面、Home 目录等位置 |
-| **7** | 诊断 | 生成独立可复用的 `check_signalp_env.sh` 脚本 |
-| **8** | 最终验证 | 用 `conda run` 执行避免 PATH 问题 |
+| **6** | 模型权重 | 完整性校验（`du -sb` + `find -type f` 对比源/目标）+ 动态发现 fallback |
+| **7** | 诊断 | 生成独立可复用的 `check_signalp_env.sh` 脚本（动态发现模型文件） |
+| **8** | 最终验证 | 用 `conda run` 执行 `signalp6 --help` 避免 PATH 问题 |
 
 ---
 
@@ -178,8 +214,9 @@ signalp6 --help
 # 激活环境
 conda activate signalp6
 
-# 运行预测（基本参数）
-signalp6 -i input.fasta -o output_dir -m slow-sequential
+# 运行预测
+signalp6 --fastafile input.fasta --output_dir output_dir --mode fast
+signalp6 --fastafile input.fasta --output_dir output_dir --mode slow-sequential
 
 # 查看完整帮助
 signalp6 --help
@@ -187,26 +224,17 @@ signalp6 --help
 
 ### 常用参数
 
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| `-i` | 输入 FASTA 文件路径 | `-i proteins.fasta` |
-| `-o` | 输出目录 | `-o results/` |
-| `-m` | 运行模式（`fast` 或 `slow-sequential`） | `-m fast` 或 `-m slow-sequential` |
-| `--organism` | 生物体类型（euk/gram+/gram-/meta） | `--organism euk` |
-| `--format` | 输出格式（short/long/json/csv/tsv） | `--format json` |
-| `--batchsize` | 批处理大小（默认 512） | `--batchsize 256` |
-| `--cpu` | CPU 线程数 | `--cpu 4` |
-
-### 输出文件说明
-
-运行完成后，输出目录中会包含以下文件：
-
-| 文件 | 说明 |
-|------|------|
-| `predictions.json` | JSON 格式的预测结果（含置信度分数） |
-| `summary.txt` | 摘要报告 |
-| `output.gff3` | GFF3 格式注释文件 |
-| `output.fasta` | 处理后的序列文件 |
+| 参数 | 短选项 | 说明 | 默认值 |
+|------|--------|------|--------|
+| `--fastafile` | `-ff` / `-fasta` / `-i` | 输入 FASTA 文件路径 | 必填 |
+| `--output_dir` | `-od` / `-o` | 输出目录 | 必填 |
+| `--mode` | `-m` | 运行模式 | `fast` |
+| `--organism` | `-org` | 生物体类型 | `other` |
+| `--format` | `-fmt` / `-f` | 输出格式（`txt`/`png`/`eps`/`all`/`none`） | `txt` |
+| `--bsize` | `-bs` / `-batch` | 批处理大小 | `10` |
+| `--torch_num_threads` | `-tt` | PyTorch 线程数 | `8` |
+| `--write_procs` | `-wp` | 并行写入进程数 | `8` |
+| `--skip_resolve` | | 跳过 Viterbi 路径冲突解析 | `False` |
 
 ### 示例：分析真核生物蛋白质（slow-sequential 模式）
 
@@ -214,12 +242,12 @@ signalp6 --help
 conda activate signalp6
 
 signalp6 \
-  -i my_proteins.fasta \
-  -o signalp_results \
-  -m slow-sequential \
+  --fastafile my_proteins.fasta \
+  --output_dir signalp_results \
+  --mode slow-sequential \
   --organism euk \
-  --format long \
-  --cpu 4
+  --format all \
+  --torch_num_threads 4
 ```
 
 ### 示例：快速预测（fast 模式）
@@ -228,10 +256,10 @@ signalp6 \
 conda activate signalp6
 
 signalp6 \
-  -i my_proteins.fasta \
-  -o signalp_results \
-  -m fast \
-  --format json
+  --fastafile my_proteins.fasta \
+  --output_dir signalp_results \
+  --mode fast \
+  --format txt
 ```
 
 ---
@@ -250,20 +278,31 @@ bash check_signalp_env.sh
 这会输出完整的依赖状态报告：
 
 ```
---- SignalP 6.0 诊断报告 ---
-1. Python 环境：Python 3.7.16
-2. 核心依赖：
-   NumPy:      1.24.4 ✅
-   PyTorch:    1.8.1+cpu ✅
-   Pillow:     9.4.0 ✅
-   Matplotlib: 3.7.5 ✅
-   tqdm:       OK ✅
-3. SignalP 状态：
-   ✅ import signalp 成功: .../site-packages/signalp6-6.0+h-py3.7.egg/signalp/__init__.py
-   ✅ 模型目录存在: .../model_weights/sequential_models_signalp6
-4. signalp6 命令：
-   ✅ signalp6 在 PATH
---- 诊断结束 ---
+╔════════════════════════════════════════════════════════╗
+║           SignalP 环境诊断报告 (v15)                    ║
+╚════════════════════════════════════════════════════════╝
+
+1. Python 环境 / Python environment:
+   Python 3.7.12 (CPython)
+
+2. 核心依赖 / Core dependencies:
+   NumPy:       1.21.6
+   PyTorch:     1.8.1+cpu
+   Pillow:      9.2.0
+   Matplotlib:  3.5.3
+   tqdm:       OK
+
+3. SignalP 状态 / SignalP status:
+   ✅ import signalp 成功 / success
+
+4. 模型权重状态（model_weights/）/ Model weights status:
+   ✅ distilled_model_signalp6.pt - 1.6G
+   ✅ sequential_models_signalp6/ - 7 文件 / files, 9.2G
+
+5. signalp6 命令 / signalp6 command:
+   ✅ signalp6 在 PATH / in PATH
+
+══════════════════ 诊断结束 / Diagnostics complete ═════════════
 ```
 
 ### 常见问题速查表
@@ -272,16 +311,16 @@ bash check_signalp_env.sh
 |----------|------|---------|
 | `ImportError: libtiff.so.5` | pip 版 Pillow 链接旧版 .so 文件 | `pip uninstall -y Pillow && conda install -c conda-forge pillow -y` |
 | `No module named 'torch'` | PyTorch 未正确安装 | `pip install torch==1.8.1+cpu torchvision==0.9.1+cpu -f https://download.pytorch.org/whl/torch_stable.html` |
-| `No module named 'signalp'` | 依赖安装顺序错误 | **必须**先装完所有依赖再 import signalp（重新运行脚本的第 5 步即可） |
+| `No module named 'signalp'` | 依赖安装顺序错误 | **必须**先装完所有依赖再 import signalp（重新运行脚本即可） |
 | `setup.py install` 卡住不退出 | setuptools egg 写入过程卡死 | 正常现象，脚本已用 `timeout 300` 自动处理；也可按 `Ctrl+C` 手动终止 |
-| `'tqdm' has no attribute 'auto'` | tqdm 版本过高不兼容 Python 3.7 | `pip install "tqdm<4.60"` |
-| `ModuleNotFoundError: No module named 'matplotlib'` | matplotlib 未安装 | `pip install "matplotlib>3.3.2,<4.0"` |
+| `'tqdm' has no attribute 'auto'` | tqdm 版本过高不兼容 Python 3.7 | `pip install "tqdm<4.66"` |
+| `ModuleNotFoundError: No module named 'matplotlib'` | matplotlib 未安装 | `pip install "matplotlib>3.3.2,<5.0"` |
 | `conda activate` 在脚本中无效 | non-interactive shell 限制 | 使用 `eval "$(conda shell.bash hook)"` 替代直接 source |
 | conda 网络超时 | 无法连接 repo.anaconda.com | 配置清华镜像（见上方「中国用户网络优化」） |
-| `找不到 signalp-6*.tar.gz` | 压缩包不在搜索路径内 | 将压缩包移到 `~/Desktop`/`~/Downloads`，或脚本会提示手动输入路径 |
+| `找不到 signalp-[0-9]*.tar.gz` | 压缩包不在搜索路径内 | 将压缩包移到 `~/Desktop`/`~/Downloads`，或脚本会提示手动输入路径 |
 | 模型权重缺失 | 解压包内无模型目录 | 手动复制：`cp -r <source>/sequential_models_signalp6 $SIGNALP_DIR/model_weights/` |
 | `signalp6: command not found` | 未激活 conda 环境 | 先执行 `conda activate signalp6` |
-| `Python implementation is PyPy` | 环境使用了 PyPy | 删除重建环境：`conda remove -n signalp6 --all -y && ./install_signalp6_v14.sh` |
+| `Python implementation is PyPy` | 环境使用了 PyPy | 删除重建环境：`conda remove -n signalp6 --all -y && ./install_signalp6_v15.sh` |
 
 ### 手动修复流程
 
@@ -300,12 +339,12 @@ pip install torch==1.8.1+cpu torchvision==0.9.1+cpu \
   -f https://download.pytorch.org/whl/torch_stable.html
 
 # 4. 安装其余依赖
-pip install "numpy>=1.19,<1.25"
-pip install "matplotlib>3.3.2,<4.0"
-pip install "tqdm<4.60"
+pip install "numpy>=1.19,<2.0"
+pip install "matplotlib>3.3.2,<5.0"
+pip install "tqdm<4.66"
 
 # 5. 验证
-python -c "import signalp; print('✅ SignalP 6.0 就绪')"
+python -c "import signalp; print('✅ SignalP 就绪')"
 
 # 6. 如果模型缺失，手动复制（替换 <path-to-models> 为实际路径）
 SIGNALP_DIR=$(python -c "import signalp; import os; print(os.path.dirname(signalp.__file__))")
@@ -378,7 +417,7 @@ AttributeError: module 'tqdm' has no attribute 'auto'
 
 **根因**：tqdm ≥ 4.67 引入了 `tqdm.auto`，其内部使用 `importlib.metadata`（Python 3.8+ 特性），在 Python 3.7 上会报错。
 
-**修复**：版本锁定 `pip install "tqdm<4.60"`。
+**修复**：版本锁定 `pip install "tqdm<4.66"`。
 
 ### Bug #5：conda 降级操作非零退出码
 
@@ -387,6 +426,18 @@ AttributeError: module 'tqdm' has no attribute 'auto'
 **根因**：当 conda 需要降级某个包时，返回非零退出码，被 `set -e` 捕获后导致整个脚本终止。
 
 **修复**：所有 conda/pip 安装命令末尾加 `|| true`，最后统一做 import 验证。
+
+### Bug #6（v15）：`set -u` 导致 `set --` 误触发
+
+**根因**：脚本使用 `set -uo pipefail`，但 `set --` 在 `set -u` 模式下对空数组会报 `unbound variable` 错误。
+
+**修复**：在 `set --` 前临时关闭 `set -u`，执行后再恢复。
+
+### Bug #7（v15）：`set -e` 被意外永久启用
+
+**根因**：Step 4（编译安装）中为安全临时 `set +e` → `set -e`，但脚本原始状态是**无 `-e`** 的。`set -e` 从未被关闭，导致后续任何未保护的命令失败都会直接退出脚本（例如 PyTorch pip 安装失败时无法回退到 conda）。
+
+**修复**：将 `set -e` 改回 `set +e`，恢复脚本的原始状态（`set -uo pipefail`）。
 
 ---
 
@@ -397,7 +448,7 @@ AttributeError: module 'tqdm' has no attribute 'auto'
 conda remove -n signalp6 --all -y
 
 # 2. （可选）删除脚本生成的临时文件
-rm -rf ~/signalp_extracted/      # 解压临时目录（如果在 Home 下）
+rm -rf ~/signalp_extracted*/      # 解压临时目录（如果在 Home 下）
 rm -f ~/check_signalp_env.sh     # 诊断脚本
 
 # 3. （可选）从 conda 环境列表确认已清理
@@ -412,8 +463,8 @@ conda env list | grep signalp    # 应该无输出
 SignalP 6.0 官方要求 Python 3.7，因为其依赖的某些库（特别是早期版本的 torch 和相关绑定）对更高版本 Python 存在兼容性问题。脚本强制创建 Python 3.7 环境。
 
 ### Q2：fast 和 slow-sequential 有什么区别？
-- **fast**：使用蒸馏模型（`distilled_model_signalp6.pt`，~400MB），预测速度最快，精度略低，适合大规模筛选
-- **slow-sequential**：使用 7 个模型的集成（`sequential_models_signalp6/`，~2GB），精度最高但速度较慢（逐条处理），适合精细分析
+- **fast**：使用蒸馏模型（`distilled_model_signalp6.pt`，~1.5GB），预测速度最快，精度略低，适合大规模筛选
+- **slow-sequential**：使用 7 个模型的集成（`sequential_models_signalp6/`，~9GB），精度最高但速度较慢（逐条处理），适合精细分析
 
 两种模式可以同时安装，脚本会自动检测你有哪些安装包并交互式选择。
 
@@ -422,13 +473,12 @@ SignalP 6.0 官方要求 Python 3.7，因为其依赖的某些库（特别是早
 - **快速网络**（直连 PyPI）：~5 分钟
 - **普通网络**（使用镜像）：~10 分钟
 - **较慢网络**：~15-20 分钟
-- 主要耗时在下载 PyTorch (~2GB) 和编译安装阶段
+- 主要耗时在下载 PyTorch (~169MB CPU only) 和模型文件
 
 ### Q4：可以在服务器上运行吗？
 可以！本脚本专为无 GUI 的 Linux 服务器设计。只需确保：
-1. 服务器已安装 Miniconda/Anaconda
-2. 将 `signalp-6*.tar.gz` 上传到服务器的任意目录
-3. SSH 登录后运行脚本即可
+1. 将 `signalp-[0-9]*.tar.gz` 上传到服务器的任意目录
+2. SSH 登录后运行脚本即可（未安装 Conda 会自动安装）
 
 ### Q5：如何确认安装是否完全成功？
 运行以下三个命令，全部通过即表示安装完成：
@@ -443,19 +493,17 @@ signalp6 --help
 ```dockerfile
 FROM ubuntu:22.04
 RUN apt-get update && apt-get install -y wget curl git
-# 安装 Miniconda
-RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-    bash /tmp/miniconda.sh -b -p /opt/conda && \
-    rm /tmp/miniconda.sh
-ENV PATH="/opt/conda/bin:$PATH"
-# 复制并运行安装脚本
-COPY install_signalp6_v14.sh /opt/
-COPY signalp-6*.tar.gz /opt/
-RUN cd /opt && bash install_signalp6_v14.sh
+# 脚本会自动安装 Miniconda
+COPY install_signalp6_v15.sh /opt/
+COPY signalp-*.tar.gz /opt/
+RUN cd /opt && bash install_signalp6_v15.sh
 ```
 
-### Q7：脚本会修改系统环境吗？
-不会。脚本的所有操作都在 conda 虚拟环境 `signalp6` 内进行，不涉及系统 Python 或全局包管理。唯一可能的外部操作是 `sudo apt-get install libtiff5`（仅在 Pillow 安装失败时的兜底措施，且需要用户确认）。
+### Q7：安装中断了怎么办？
+v15 支持断点续装。直接重新运行脚本，选择 `[1] 继续上次安装` 即可从断点恢复。
+
+### Q8：脚本会修改系统环境吗？
+不会。脚本的所有操作都在 conda 虚拟环境 `signalp6` 内进行，不涉及系统 Python 或全局包管理。
 
 ---
 
@@ -463,21 +511,25 @@ RUN cd /opt && bash install_signalp6_v14.sh
 
 ```
 ┌───────────────────────────────────────────────────────┐
-│            SignalP 6.0 自动安装流程                    │
+│            SignalP 6.0 自动安装流程 (v15)               │
 ├───────────────────────────────────────────────────────┤
 │                                                       │
 │  ┌─────────┐                                         │
-│  │ 准备工作  │  Conda + signalp-6*.tar.gz             │
+│  │ 准备工作  │  signalp-[0-9]*.tar.gz                 │
+│  │ (Conda   │  (未安装会自动下载 Miniconda3)            │
+│  │  可选)   │                                         │
 │  └────┬────┘                                         │
 │       ▼                                               │
 │  ┌─────────────┐                                     │
-│  │ 运行脚本     │  ./install_signalp6_v14.sh        │
+│  │ 运行脚本     │  ./install_signalp6_v15.sh          │
+│  │ (中断可恢复) │  🔄 Checkpoint Resume                │
 │  └────┬────────┘                                     │
 │       ▼                                               │
 │  ┌─────────────────────────────────────┐             │
 │  │ Step 0-4: 环境准备 & 编译安装         │             │
+│  │ • 自动检测/安装 Conda                 │             │
 │  │ • 创建 signalp6 (Python 3.7) 环境     │             │
-│  │ • 搜索 & 解压 tar.gz                 │             │
+│  │ • 搜索 & 智能去重 tar.gz              │             │
 │  │ • timeout 300 setup.py install       │             │
 │  └──────────────┬──────────────────────┘             │
 │                 ▼                                      │
@@ -485,14 +537,15 @@ RUN cd /opt && bash install_signalp6_v14.sh
 │  │ Step 5: 依赖安装（核心！）            │             │
 │  │ • [5a] Pillow → conda-forge 版 ★     │             │
 │  │ • [5b] matplotlib → pip 优先         │             │
-│  │ • [5c] NumPy <2.0                   │             │
+│  │ • [5c] NumPy >=1.19,<2.0           │             │
 │  │ • [5d] PyTorch 1.8.1 CPU            │             │
-│  │ • [5e] tqdm <4.60                   │             │
+│  │ • [5e] tqdm <4.66                   │             │
 │  │ • [5f] import signalp 验证          │             │
 │  └──────────────┬──────────────────────┘             │
 │                 ▼                                      │
 │  ┌──────────────────┐                                │
 │  │ Step 6-8: 模型+诊断+验证 │                           │
+│  │ • 完整性校验 + 动态发现 │                           │
 │  └────────────┬─────┘                                │
 │               ▼                                        │
 │     ┌─────────────┐                                   │
@@ -506,7 +559,17 @@ RUN cd /opt && bash install_signalp6_v14.sh
 
 ## 📝 更新日志
 
-### v14（当前版本）
+### v15（当前版本）
+
+- **🔄 断点续装**：安装中断后自动从断点恢复，支持继续/重装/退出三种选择
+- **📦 Conda 自动安装**：未安装 Conda 时自动下载 Miniconda3，无需预先准备
+- **🔮 前向兼容**：动态 .egg 目录发现、动态模型文件发现、压缩包通配符 `signalp-[0-9]*`、版本集中配置区
+- **🐛 Bug 修复**：修复 nounset（#6）、shell 注入、环境健康检查、模式显示、模型完整性校验、`set -e` 意外启用（#7）共 7 个 bug
+- **放宽依赖约束**：NumPy `>=1.19,<2.0`、matplotlib `>3.3.2,<5.0`、tqdm `<4.66`
+- **诊断脚本升级**：动态遍历模型目录，不再硬编码文件名
+- **CLI 参数修正**：修复 README 中错误的参数名（`-i` → `--fastafile`、`--batchsize` → `--bsize` 等）
+
+### v14
 
 - **新增 `fast` 模式支持**（蒸馏模型 `distilled_model_signalp6.pt`）
 - **智能压缩包去重**：自动从 `signalp-{ver}.{mode}.tar.gz` 文件名解析模式和版本，同模式保留最高版本
@@ -622,9 +685,20 @@ Save fellow bioinformaticians from the pain of installing SignalP 6.0 🧬
 
 **SignalP 6.0** is the state-of-the-art **signal peptide and transmembrane domain prediction tool** from DTU Health Tech, powered by deep learning. However, the official distribution only provides manual installation steps, which encounter **multiple known compatibility issues** on Ubuntu/Linux + Conda environments — each requiring hours of debugging to resolve.
 
-This script has been **iteratively tested and refined over 14 rounds (v1 → v14)**, reducing the tedious 8-step manual installation to **a single command**, with automatic fixes for all known issues. v14 adds **fast + slow-sequential dual-mode support**, smart package dedup, and interactive mode selection.
+This script has been **iteratively tested and refined over 15 rounds (v1 → v15)**, reducing the tedious 8-step manual installation to **a single command**, with automatic fixes for all known issues.
 
 > 💡 **Use cases**: Bioinformatics research, protein sequence analysis, signal peptide prediction, transmembrane protein identification
+
+---
+
+## 🆕 What's New in v15
+
+| Feature | Description |
+|---------|-------------|
+| **🔄 Checkpoint Resume** | Resume from last checkpoint after interruption (network timeout, Ctrl+C, power off, etc.) |
+| **📦 Auto Conda Install** | Automatically downloads and installs Miniconda3 if Conda is not present |
+| **🔮 Forward Compatibility** | Dynamic .egg discovery, dynamic model file discovery, wildcard package matching; version config centralized at script top |
+| **🐛 Bug Fixes** | Fixed nounset, shell injection, env health check, mode display, model integrity, `set -e` leak — 7 bugs total |
 
 ---
 
@@ -633,9 +707,10 @@ This script has been **iteratively tested and refined over 14 rounds (v1 → v14
 | Item | Details |
 |------|---------|
 | **Supported models** | ✅ `fast` (distilled, fastest) and `slow-sequential` (ensemble, highest accuracy) |
-| **Smart detection** | ✅ Auto-parse `signalp-6*.tar.gz` filenames, group by mode, keep highest version |
+| **Smart detection** | ✅ Auto-parse `signalp-[0-9]*.tar.gz` filenames, group by mode, keep highest version |
 | **OS** | Ubuntu 18.04+ / Debian 10+ (other distros may need adjustments) |
 | **Python** | Must be **CPython 3.7** (PyPy not supported) |
+| **Conda** | Miniconda3 / Anaconda (**auto-installed if not present**) |
 
 ---
 
@@ -644,16 +719,16 @@ This script has been **iteratively tested and refined over 14 rounds (v1 → v14
 | Requirement | Details |
 |-------------|---------|
 | **OS** | Ubuntu 18.04+ / Debian 10+ (tested on Ubuntu 22.04) |
-| **Conda** | [Miniconda3](https://docs.conda.io/en/latest/miniconda.html) or Anaconda pre-installed |
+| **Conda** | Miniconda3 or Anaconda (**optional** — auto-installed if missing) |
 | **Network** | Access to PyPI / conda-forge / PyTorch download servers |
-| **SignalP package** | Download `signalp-6*.tar.gz` (**fast** and/or **slow-sequential** versions) from [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) |
+| **SignalP package** | Download `signalp-[0-9]*.tar.gz` (**fast** and/or **slow-sequential** versions) from [DTU Health Tech](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0) |
 
 ### Getting the SignalP Package
 
 1. Visit [DTU Health Tech registration page](https://services.healthtech.dtu.dk/cgi-bin/sw_request?software=signalp&version=6.0)
 2. Fill in the academic use application form (**free**, non-commercial academic use only)
-3. Download **fast** and/or **slow-sequential** versions of `signalp-6*.tar.gz` after receiving the download link
-4. Place the archive in any of these directories: `~/Desktop`, `~/Downloads`, script directory, or anywhere (the script will search automatically)
+3. Download **fast** and/or **slow-sequential** versions of `signalp-[0-9]*.tar.gz`
+4. Place the archive anywhere — the script will find it automatically
 
 ---
 
@@ -661,23 +736,30 @@ This script has been **iteratively tested and refined over 14 rounds (v1 → v14
 
 ### Step 1: Prepare the Package
 
-Place `signalp-6*.tar.gz` in one of the directories listed above.
+Place `signalp-[0-9]*.tar.gz` in any directory.
 
 ### Step 2: Download & Run
 
-**Option A: Script only**
+**Option A: Script only (Bilingual CN+EN)**
 ```bash
-curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v14.sh
-chmod +x install_signalp6_v14.sh
-./install_signalp6_v14.sh
+curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v15.sh
+chmod +x install_signalp6_v15.sh
+./install_signalp6_v15.sh
+```
+
+**Option A2: Script only (English)**
+```bash
+curl -O https://raw.githubusercontent.com/lijiangyong314/signalp6-installer/main/install_signalp6_v15_en.sh
+chmod +x install_signalp6_v15_en.sh
+./install_signalp6_v15_en.sh
 ```
 
 **Option B: Full repo clone (recommended)**
 ```bash
 git clone https://github.com/lijiangyong314/signalp6-installer.git
 cd signalp6-installer
-chmod +x install_signalp6_v14.sh
-./install_signalp6_v14.sh
+chmod +x install_signalp6_v15.sh
+./install_signalp6_v15.sh
 ```
 
 ### Step 3: Verify
@@ -690,38 +772,43 @@ If you see the SignalP 6.0 help message, installation is successful ✅
 
 ---
 
+## 🔄 Checkpoint Resume
+
+v15 supports checkpoint resume. If installation is interrupted for any reason (network timeout, Ctrl+C, power off, etc.), running the script again will show:
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║     Previous incomplete install detected                  ║
+╠═══════════════════════════════════════════════════════════╣
+║  Interrupted at: Install dependencies                     ║
+║  Time: 2026-05-27 20:09:52                               ║
+║  Modes: fast slow-sequential                              ║
+╚═══════════════════════════════════════════════════════════╝
+
+  [1] Resume from last checkpoint
+  [2] Fresh install (remove existing environment)
+  [3] Exit
+
+Select [1-3]:
+```
+
+Choose `[1]` to seamlessly resume from the last checkpoint. Completed steps are automatically skipped.
+
+---
+
 ## 🔍 Installation Pipeline (8 Steps)
 
 ```
-[0/8] Initialize Conda         ← Detect Conda path + activate shell hook
+[0/8] Initialize Conda         ← Detect/auto-install Conda + shell hook
 [1/8] Create Python 3.7 env    ← Create signalp6 conda environment (CPython)
-[2/8] Locate signalp-6*.tar.gz ← Auto-search common dirs + full scan + manual fallback
-[3/8] Extract                  ← Dynamic setup.py search (non-standard dir names OK)
+[2/8] Find packages (dedup)    ← Auto-search + smart version dedup
+[3/8] Extract on demand        ← Dynamic setup.py search (non-standard dir names OK)
 [4/8] Build & Install          ← timeout 300s for setup.py install (prevent hang)
-[5/8] Install Dependencies     ← Pillow → matplotlib → NumPy → PyTorch → tqdm
-[6/8] Deploy Model Weights     ← Auto-find sequential_models_signalp6 directory
+[5/8] Install Dependencies     ← Pillow → matplotlib → NumPy → PyTorch → tqdm → verify
+[6/8] Deploy Model Weights     ← Integrity check + dynamic discovery fallback
 [7/8] Environment Diagnostics  ← Generate check_signalp_env.sh
 [8/8] Final Verification       ← Run signalp6 --help
 ```
-
-### Key Technical Decisions
-
-| Step | What | Key Detail |
-|:----:|------|------------|
-| **0** | Init Conda | `eval "$(conda shell.bash hook)"` fixes non-interactive shell activate |
-| **1** | Create env | Enforce CPython check (PyPy incompatible with PyTorch) |
-| **2** | Find tarball | Multi-level search: common dirs → workdir → `/home` scan (30s limit) → manual input |
-| **3** | Extract | `find -name setup.py` dynamic locate, no hardcoded paths |
-| **4** | Build | `timeout 300` anti-hang + `set +e` prevent exit code kill |
-| **5a** | **Pillow fix** | **Core fix**: uninstall pip Pillow → install conda-forge version (`libtiff.so.5`) |
-| **5b** | matplotlib | pip first (faster), fallback to conda |
-| **5c** | NumPy | Pin `<2.0` for Python 3.7 compat |
-| **5d** | PyTorch | pip install 1.8.1+cpu (CPU only), all commands with `\|\| true` |
-| **5e** | tqdm | Pin `<4.60` (4.67+ uses `importlib.metadata`, a Py 3.8+ feature) |
-| **5f** | Import verify | Only attempt `import signalp` after ALL dependencies are ready |
-| **6** | Model weights | Multi-path search: extracted pkg, Desktop, Home, etc. |
-| **7** | Diagnostics | Generate standalone reusable diagnostic script |
-| **8** | Verify | Use `conda run` to avoid PATH issues |
 
 ---
 
@@ -730,46 +817,22 @@ If you see the SignalP 6.0 help message, installation is successful ✅
 ### Basic Usage
 ```bash
 conda activate signalp6
-signalp6 -i input.fasta -o output_dir -m slow-sequential
-signalp6 -i input.fasta -o output_dir -m fast
+signalp6 --fastafile input.fasta --output_dir output_dir --mode slow-sequential
+signalp6 --fastafile input.fasta --output_dir output_dir --mode fast
 signalp6 --help
 ```
 
 ### Common Parameters
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `-i` | Input FASTA file | `-i proteins.fasta` |
-| `-o` | Output directory | `-o results/` |
-| `-m` | Run mode (`fast` or `slow-sequential`) | `-m fast` or `-m slow-sequential` |
-| `--organism` | Organism type (euk/gram+/gram-/meta) | `--organism euk` |
-| `--format` | Output format (short/long/json/csv/tsv) | `--format json` |
-| `--batchsize` | Batch size (default 512) | `--batchsize 256` |
-| `--cpu` | Number of CPU threads | `--cpu 4` |
-
-### Example: Eukaryotic Protein Analysis (slow-sequential)
-```bash
-conda activate signalp6
-
-signalp6 \
-  -i my_proteins.fasta \
-  -o signalp_results \
-  -m slow-sequential \
-  --organism euk \
-  --format long \
-  --cpu 4
-```
-
-### Example: Fast Prediction (fast)
-```bash
-conda activate signalp6
-
-signalp6 \
-  -i my_proteins.fasta \
-  -o signalp_results \
-  -m fast \
-  --format json
-```
+| Parameter | Short | Description | Default |
+|-----------|-------|-------------|---------|
+| `--fastafile` | `-ff` / `-fasta` / `-i` | Input FASTA file | Required |
+| `--output_dir` | `-od` / `-o` | Output directory | Required |
+| `--mode` | `-m` | Run mode (`fast` or `slow-sequential`) | `fast` |
+| `--organism` | `-org` | Organism type (`eukarya` / `other`) | `other` |
+| `--format` | `-fmt` / `-f` | Output format (`txt`/`png`/`eps`/`all`/`none`) | `txt` |
+| `--bsize` | `-bs` | Batch size | `10` |
+| `--torch_num_threads` | `-tt` | PyTorch threads | `8` |
 
 ---
 
@@ -787,12 +850,9 @@ bash check_signalp_env.sh
 |-------|-------|-----|
 | `ImportError: libtiff.so.5` | pip Pillow links old `.so` | `pip uninstall -y Pillow && conda install -c conda-forge pillow -y` |
 | `No module named 'torch'` | PyTorch not installed | `pip install torch==1.8.1+cpu torchvision==0.9.1+cpu -f https://download.pytorch.org/whl/torch_stable.html` |
-| `No module named 'signalp'` | Dependency order issue | Install ALL dependencies before importing signalp (re-run Step 5) |
+| `No module named 'signalp'` | Dependency order issue | Install ALL dependencies before importing signalp |
 | `setup.py install` hangs forever | setuptools egg-info deadlock | Normal; script uses `timeout 300`. Press `Ctrl+C` if needed |
-| `'tqdm' has no attribute 'auto'` | tqdm too new for Python 3.7 | `pip install "tqdm<4.60"` |
-| `ModuleNotFoundError: No module named 'matplotlib'` | matplotlib missing | `pip install "matplotlib>3.3.2,<4.0"` |
-| `conda activate` fails in script | Non-interactive shell | Use `eval "$(conda shell.bash hook)"` instead of sourcing |
-| conda network timeout | Can't reach repo.anaconda.com | Configure mirrors (see Chinese user guide above) |
+| `'tqdm' has no attribute 'auto'` | tqdm too new for Python 3.7 | `pip install "tqdm<4.66"` |
 | `signalp6: command not found` | Environment not activated | Run `conda activate signalp6` first |
 
 ---
@@ -800,15 +860,9 @@ bash check_signalp_env.sh
 ## 🗑️ Uninstallation
 
 ```bash
-# Remove conda environment (includes all dependencies)
 conda remove -n signalp6 --all -y
-
-# Optional: clean up generated files
-rm -rf ~/signalp_extracted/
+rm -rf ~/signalp_extracted*/
 rm -f ~/check_signalp_env.sh
-
-# Confirm cleanup
-conda env list | grep signalp   # should return nothing
 ```
 
 ---
@@ -818,115 +872,74 @@ conda env list | grep signalp   # should return nothing
 These issues are **not documented** in the official installation guide:
 
 ### Bug #1: `ImportError: libtiff.so.5`
-
-**Root cause**: pip-installed Pillow dynamically links `libtiff.so.5`, but modern Linux (Ubuntu 22.04+) only ships `libtiff.so.6`.
-
-**Fix**: Uninstall pip Pillow → install via conda-forge (ships compatible `.so` links).
+pip Pillow links `libtiff.so.5`; modern Linux only has `.so.6`. Fix: uninstall pip Pillow → install conda-forge version.
 
 ### Bug #2: `setup.py install` hangs indefinitely
-
-**Root cause**: setuptools deadlocks during egg-info writing on certain setuptools + Python 3.7 combinations.
-
-**Fix**: `timeout 300 python setup.py install` (exit code 124 = killed by timeout, but installation is complete).
+setuptools deadlocks during egg-info writing. Fix: `timeout 300 python setup.py install`.
 
 ### Bug #3: Cascading ImportError on `import signalp`
-
-**Root cause**: SignalP import chain: `signalp → predict → torch` and `signalp → plot → matplotlib → PIL`. Any missing link causes failure.
-
-**Fix**: Script enforces strict ordering: install ALL dependencies → then verify import.
+SignalP import chain requires all dependencies present simultaneously. Fix: strict ordering enforced.
 
 ### Bug #4: `tqdm.auto` AttributeError
-
-**Root cause**: tqdm ≥ 4.67 uses `importlib.metadata` (Python 3.8+ feature).
-
-**Fix**: Version pin `"tqdm<4.60"`.
+tqdm ≥ 4.67 uses `importlib.metadata` (Python 3.8+). Fix: version pin `<4.66`.
 
 ### Bug #5: conda downgrade non-zero exit code
+Fix: all install commands with `|| true`; unified import verification.
 
-**Root cause**: conda returns non-zero when downgrading packages; caught by `set -e` kills the entire script.
+### Bug #6 (v15): `set -u` breaks `set --`
+Fix: temporarily disable `set -u` around `set --`.
 
-**Fix**: All install commands appended with `|| true`; unified verification at end.
+### Bug #7 (v15): `set -e` permanently enabled after Step 4
+Fix: restore original `set +e` state instead of enabling `set -e`.
 
 ---
 
 ## ❓ FAQ
 
 **Q: Why Python 3.7?**
-SignalP 6.0 officially requires Python 3.7 due to dependency compatibility (especially early PyTorch versions). The script creates a dedicated Python 3.7 environment.
+SignalP 6.0 officially requires Python 3.7 due to dependency compatibility. The script creates a dedicated Python 3.7 environment.
 
 **Q: What's the difference between fast and slow-sequential?**
-- **fast**: Uses a single distilled model (`distilled_model_signalp6.pt`, ~400MB). Fastest prediction speed, slightly lower accuracy. Best for large-scale screening.
-- **slow-sequential**: Uses an ensemble of 7 sequential models (~2GB). Highest accuracy but slower (processes one sequence at a time). Best for detailed analysis.
-
-Both modes can be installed simultaneously. The script detects which packages you have and lets you choose interactively.
+- **fast**: Single distilled model (~1.5GB). Fastest prediction, slightly lower accuracy. Best for large-scale screening.
+- **slow-sequential**: Ensemble of 7 sequential models (~9GB). Highest accuracy but slower (one at a time). Best for detailed analysis.
 
 **Q: How long does installation take?**
 - Fast network: ~5 min
 - Normal network (mirrors): ~10 min
-- Slow network: ~15-20 min
-- Main bottleneck: PyTorch download (~2GB CPU-only)
+- Main bottleneck: PyTorch download (~169MB CPU-only) + model files
 
 **Q: Can I run this on a headless server?**
-Yes! Designed for SSH-only Linux servers. Just upload the tarball and run.
+Yes! Designed for SSH-only Linux servers. Conda is auto-installed if not present.
 
-**Q: How do I verify full success?**
-```bash
-conda activate signalp6
-python -c "import signalp, torch, PIL, matplotlib; print('All imports OK')"
-signalp6 --help
-```
+**Q: Installation was interrupted?**
+v15 supports checkpoint resume. Just re-run the script and choose `[1] Resume`.
 
 ---
 
 ## 📝 Changelog
 
-### v14 (Current)
+### v15 (Current)
+
+- **Checkpoint Resume**: auto-detect interrupted installs, resume from last checkpoint
+- **Auto Conda Install**: downloads Miniconda3 if Conda is not installed
+- **Forward Compatibility**: dynamic .egg/model discovery, wildcard package matching, centralized version config
+- **7 Bug Fixes**: nounset, shell injection, env health check, mode display, model integrity, `set -e` leak, `set --` fix
+- **Relaxed constraints**: NumPy `>=1.19,<2.0`, matplotlib `>3.3.2,<5.0`, tqdm `<4.66`
+- **CLI parameter corrections** in README
+
+### v14
 
 - **Added `fast` mode support** (distilled model `distilled_model_signalp6.pt`)
-- **Smart package dedup**: auto-parse `signalp-{ver}.{mode}.tar.gz` filenames, keep highest version per mode
+- **Smart package dedup**: auto-parse filenames, keep highest version per mode
 - **Interactive mode selection**: runtime menu showing available modes
 - **On-demand extraction**: only extract selected mode packages
-- **rm -rf safety guard**: prevent accidental root deletion from empty variables
-- **Fixed `parse_tar_filename`**: right-to-left split for version numbers with dots
+- **rm -rf safety guard**: prevent accidental root deletion
 - **Fixed stdout/stderr mixing**: all log functions output to `>&2`
-- **Bilingual output (CN+EN)** / **English-only version** (`install_signalp6_v14_en.sh`)
+- **Bilingual (CN+EN)** / **English-only** versions
 
-### v13
+### v13-v1
 
-- Multi-tarball smart parsing and version dedup
-- Interactive mode selection menu
-- Fixed `rm -rf` safety issue
-- Fixed stdout/stderr mixing causing TARGET_MODES duplication
-- Fixed version parsing direction
-
-### v12
-
-- Real-machine validated: fast model = single file `distilled_model_signalp6.pt`
-- Real-machine validated: slow-sequential = directory `sequential_models_signalp6/` (7 files)
-- Confirmed `ensemble_model_signalp6.pt` doesn't exist, removed slow mode
-- Fixed heredoc quote escaping bug
-
-### v10
-- Added `eval "$(conda shell.bash hook)"` for reliable conda activation in scripts
-- matplotlib: pip-first strategy (avoid conda timeout)
-- Improved logging with step counters `[X/8]`
-- Standalone `check_signalp_env.sh` diagnostic script
-- Mirror configuration guide for Chinese users
-
-### v9-v8
-- `|| true` guards against conda exit codes killing script
-- tqdm version pin `<4.60`
-- Full-disk tarball search + manual input fallback
-
-### v7-v5
-- Dynamic `setup.py` search (non-standard extract dir names)
-- Multi-path model weight auto-discovery
-- `libtiff.so.5` fix finalized
-
-### v4-v1
-- `timeout 300` for setup.py anti-hang
-- Dependency order correction
-- Basic automation framework
+See Chinese section above for full history.
 
 ---
 
@@ -951,8 +964,7 @@ See official terms: https://services.healthtech.dtu.dk/service.php?SignalP-6.0
 
 Issues and Pull Requests are welcome!
 
-- Found a new compatibility issue? → Open an [Issue](https://github.com/lijiangyong314/signalp6-installer/issues) with your system details and error log
-- Improvement ideas? → PRs welcome
+- Found a new compatibility issue? → Open an [Issue](https://github.com/lijiangyong314/signalp6-installer/issues)
 - Successfully installed? → ⭐ Star to help others discover this tool!
 
 ---

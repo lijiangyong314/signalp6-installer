@@ -25,9 +25,29 @@
 
 set -uo pipefail
 
+# Pre-declare to avoid nounset errors under set -u
+TARGET_MODES=()
+CONDA_BASE=""
+
 WORK_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"
 
-# ---- Mode configuration ----
+# ================================================================
+#  ★ Version Configuration
+#  Only modify here when SignalP updates
+# ================================================================
+PYTHON_VERSION="3.7"          # Python version
+PYTORCH_VERSION="1.8.1"       # PyTorch version
+TORCHVISION_VERSION="0.9.1"   # TorchVision version
+TORCH_VARIANT="cpu"           # cpu or cu111 etc.
+
+# Dependency version constraints
+NUMPY_CONSTRAINT=">=1.19,<2.0"
+MATPLOTLIB_CONSTRAINT=">3.3.2,<5.0"
+TQDM_CONSTRAINT="<4.66"
+PILLOW_CONSTRAINT="<11"
+
+# Model file mapping
+# If official filenames change, update here
 declare -A MODEL_FILE_MAP=(
     ["fast"]="distilled_model_signalp6.pt"
     ["slow-sequential"]="sequential_models_signalp6"
@@ -51,19 +71,22 @@ save_state() {
     if [ ${#TARGET_MODES[@]} -gt 0 ] 2>/dev/null; then
         modes_str=$(IFS='|'; echo "${TARGET_MODES[*]}")
     fi
-    printf 'CURRENT_STEP=%s\nTARGET_MODES=%s\nCONDA_BASE=%s\nSCRIPT_VERSION=v15\nTIMESTAMP=%s\n' \
+    # All values MUST be double-quoted, otherwise source treats | as pipe and spaces as cmd separators
+    printf 'CURRENT_STEP="%s"\nTARGET_MODES="%s"\nCONDA_BASE="%s"\nSCRIPT_VERSION="v15"\nTIMESTAMP="%s"\n' \
         "$step" "${modes_str}" "${CONDA_BASE:-}" "$(date '+%Y-%m-%d %H:%M:%S')" > "$STATE_FILE"
 }
 
 load_state() {
     [ ! -f "$STATE_FILE" ] && return 1
-    set +u
-    source "$STATE_FILE"
-    set -u
+    # Use grep+sed to safely parse, avoid source's shell injection risk
+    CURRENT_STEP=$(grep '^CURRENT_STEP=' "$STATE_FILE" | sed 's/^CURRENT_STEP=//' | tr -d '"')
+    TARGET_MODES=$(grep '^TARGET_MODES=' "$STATE_FILE" | sed 's/^TARGET_MODES=//' | tr -d '"')
+    CONDA_BASE=$(grep '^CONDA_BASE=' "$STATE_FILE" | sed 's/^CONDA_BASE=//' | tr -d '"')
+    TIMESTAMP=$(grep '^TIMESTAMP=' "$STATE_FILE" | sed 's/^TIMESTAMP=//' | tr -d '"')
     if [ -n "${TARGET_MODES:-}" ]; then
         IFS='|' read -ra TARGET_MODES <<< "$TARGET_MODES"
     fi
-    TARGET_MODES_STR="${TARGET_MODES:-}"
+    TARGET_MODES_STR="${TARGET_MODES[*]}"
     return 0
 }
 
@@ -210,12 +233,12 @@ find_and_dedup_tars() {
         [ -d "$d" ] || continue
         while IFS= read -r -d '' f; do
             all_tars+=("$f")
-        done < <(find "$d" -maxdepth 3 -name "signalp-6*.tar.gz" -print0 2>/dev/null)
+        done < <(find "$d" -maxdepth 3 -name "signalp-[0-9]*.tar.gz" -print0 2>/dev/null)
     done
 
     while IFS= read -r -d '' f; do
         all_tars+=("$f")
-    done < <(timeout 30 find /home -maxdepth 5 -name "signalp-6*.tar.gz" -print0 2>/dev/null || true)
+    done < <(timeout 30 find /home -maxdepth 5 -name "signalp-[0-9]*.tar.gz" -print0 2>/dev/null || true)
 
     if [ ${#all_tars[@]} -eq 0 ]; then
         return 1
@@ -451,11 +474,20 @@ save_state "1"
 log_step "[1/8] Create Python environment"
 
 if conda env list 2>/dev/null | grep -q "^signalp6 "; then
-    log_skip "signalp6 env exists, skipping"
-    log_info "(To rebuild: conda remove -n signalp6 --all -y)"
+    # Env dir exists but may be broken from interruption, verify python works
+    eval "$(conda shell.bash hook 2>/dev/null)"
+    if conda run -n signalp6 python --version &>/dev/null; then
+        log_skip "signalp6 env exists and healthy, skipping"
+        log_info "(To rebuild: conda remove -n signalp6 --all -y)"
+    else
+        log_warn "signalp6 env broken (no python), removing and recreating..."
+        conda remove -n signalp6 --all -y
+        log_info "Creating signalp6 env (python=${PYTHON_VERSION})..."
+        conda create -n signalp6 python="${PYTHON_VERSION}" -c conda-forge -y
+    fi
 else
-    log_info "Creating signalp6 env (python=3.7)..."
-    conda create -n signalp6 python=3.7 -c conda-forge -y
+    log_info "Creating signalp6 env (python=${PYTHON_VERSION})..."
+    conda create -n signalp6 python="${PYTHON_VERSION}" -c conda-forge -y
 fi
 
 eval "$(conda shell.bash hook 2>/dev/null)" || {
@@ -485,7 +517,7 @@ DEDUP_FILE=$(find_and_dedup_tars)
 DEDUP_RC=$?
 if [ $DEDUP_RC -ne 0 ] || [ ! -s "$DEDUP_FILE" ]; then
     rm -f "$DEDUP_FILE"
-    log_error "signalp-6*.tar.gz not found"
+    log_error "signalp-*.tar.gz not found"
     echo "" >&2
     read -p "Please enter full path to tarball: " USER_INPUT
     if [ -f "$USER_INPUT" ] && [[ "$USER_INPUT" == *.tar.gz ]]; then
@@ -662,7 +694,8 @@ save_state "4"
 log_step "[4/8] Build and install"
 
 SITE_PKGS_CHECK=$(python -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || echo "")
-if [ -n "$SITE_PKGS_CHECK" ] && [ -d "$SITE_PKGS_CHECK/signalp6-6.0+h-py3.7.egg/signalp" ]; then
+SIGNALP6_EGG_DIR=$(find "${SITE_PKGS_CHECK:-/dev/null}" -maxdepth 1 -type d -name "signalp6*.egg" 2>/dev/null | head -n1)
+if [ -n "$SIGNALP6_EGG_DIR" ] && [ -d "$SIGNALP6_EGG_DIR/signalp" ]; then
     log_skip "signalp package already installed, skipping build"
 elif pip show signalp6 > /dev/null 2>&1; then
     log_skip "signalp package already installed, skipping build"
@@ -674,7 +707,8 @@ else
     set +e
     timeout 300 python setup.py install 2>&1 | tee /tmp/signalp_install.log
     INSTALL_RC=${PIPESTATUS[0]}
-    set -e
+    # Restore original state: script runs with set -uo pipefail (NO -e)
+    set +e
 
     if [ $INSTALL_RC -eq 124 ]; then
         log_warn "Install timed out at 300s (normal, install complete)"
@@ -684,7 +718,8 @@ else
         log_info "setup.py install completed normally"
     fi
 
-    if [ -d "${SITE_PKGS_CHECK:-/dev/null}/signalp6-6.0+h-py3.7.egg/signalp" ] || \
+    SIGNALP6_EGG_DIR=$(find "${SITE_PKGS_CHECK:-/dev/null}" -maxdepth 1 -type d -name "signalp6*.egg" 2>/dev/null | head -n1)
+    if [ -n "$SIGNALP6_EGG_DIR" ] && [ -d "$SIGNALP6_EGG_DIR/signalp" ] || \
        pip show signalp6 > /dev/null 2>&1; then
         log_info "signalp package installed"
     else
@@ -718,8 +753,7 @@ else
     conda install -c conda-forge pillow -y 2>/dev/null || true
     if ! python -c "from PIL import Image" 2>/dev/null; then
         log_warn "  conda Pillow failed, trying pip"
-        pip install pillow 2>/dev/null || true
-        sudo apt-get install -y libtiff5 2>/dev/null || true
+        pip install "pillow${PILLOW_CONSTRAINT}" 2>/dev/null || true
     fi
     python -c "from PIL import Image; print('  Pillow OK')" 2>/dev/null || log_warn "Pillow verification failed"
 fi
@@ -730,7 +764,7 @@ log_info "[5b] Installing matplotlib..."
 if python -c "import matplotlib" 2>/dev/null; then
     log_skip "  matplotlib already installed"
 else
-    pip install "matplotlib>3.3.2,<4.0" 2>/dev/null || true
+    pip install "matplotlib${MATPLOTLIB_CONSTRAINT}" 2>/dev/null || true
     if ! python -c "import matplotlib" 2>/dev/null; then
         log_warn "  pip matplotlib failed, trying conda..."
         conda install -c conda-forge matplotlib -y 2>/dev/null || true
@@ -739,38 +773,38 @@ else
 fi
 save_state "5c"
 
-# 5c. NumPy (<2.0)
-log_info "[5c] Installing NumPy (<2.0)..."
+# 5c. NumPy
+log_info "[5c] Installing NumPy..."
 if python -c "import numpy" 2>/dev/null; then
     log_skip "  NumPy already installed"
 else
-    pip install "numpy>=1.19,<1.25" || true
+    pip install "numpy${NUMPY_CONSTRAINT}" || true
     python -c "import numpy; print(f'  NumPy {numpy.__version__} OK')" 2>/dev/null || log_warn "NumPy verification failed"
 fi
 save_state "5d"
 
-# 5d. PyTorch 1.8.1 CPU
-log_info "[5d] Installing PyTorch 1.8.1 CPU..."
+# 5d. PyTorch
+log_info "[5d] Installing PyTorch ${PYTORCH_VERSION} ${TORCH_VARIANT}..."
 if python -c "import torch" 2>/dev/null; then
     log_skip "  PyTorch already installed"
 else
-    pip install torch==1.8.1+cpu torchvision==0.9.1+cpu \
+    pip install torch==${PYTORCH_VERSION}+${TORCH_VARIANT} torchvision==${TORCHVISION_VERSION}+${TORCH_VARIANT} \
         -f https://download.pytorch.org/whl/torch_stable.html 2>/dev/null
     if ! python -c "import torch; print(f'  PyTorch {torch.__version__} OK')" 2>/dev/null; then
         log_warn "  pip failed, trying conda..."
-        conda install -c pytorch pytorch==1.8.1 cpuonly -y || true
+        conda install -c pytorch pytorch==${PYTORCH_VERSION} ${TORCH_VARIANT}only -y || true
         python -c "import torch; print(f'  PyTorch {torch.__version__} OK')" 2>/dev/null || \
             log_error "PyTorch installation failed"
     fi
 fi
 save_state "5e"
 
-# 5e. tqdm (<4.60)
-log_info "[5e] Installing tqdm (Python 3.7 compat)..."
+# 5e. tqdm
+log_info "[5e] Installing tqdm..."
 if python -c "import tqdm" 2>/dev/null; then
     log_skip "  tqdm already installed"
 else
-    pip install "tqdm<4.60" || true
+    pip install "tqdm${TQDM_CONSTRAINT}" || true
     python -c "import tqdm; print('  tqdm OK')" 2>/dev/null || log_warn "tqdm verification failed"
 fi
 save_state "5f"
@@ -784,10 +818,10 @@ else
     python -c "import signalp" 2>&1 | tail -10
     echo "" >&2
     log_warn "Checking dependencies one by one:" >&2
-    python -c "import torch; print('  torch OK')"      2>/dev/null || log_error "  torch MISSING -> pip install torch==1.8.1+cpu -f https://download.pytorch.org/whl/torch_stable.html"
+    python -c "import torch; print('  torch OK')"      2>/dev/null || log_error "  torch MISSING -> pip install torch==${PYTORCH_VERSION}+${TORCH_VARIANT} -f https://download.pytorch.org/whl/torch_stable.html"
     python -c "from PIL import Image; print('  PIL OK')" 2>/dev/null || log_error "  Pillow MISSING -> conda install -c conda-forge pillow -y"
-    python -c "import matplotlib; print('  matplotlib OK')" 2>/dev/null || log_error "  matplotlib MISSING -> pip install 'matplotlib>3.3.2,<4.0'"
-    python -c "import tqdm; print('  tqdm OK')"        2>/dev/null || log_error "  tqdm MISSING -> pip install 'tqdm<4.60'"
+    python -c "import matplotlib; print('  matplotlib OK')" 2>/dev/null || log_error "  matplotlib MISSING -> pip install 'matplotlib${MATPLOTLIB_CONSTRAINT}'"
+    python -c "import tqdm; print('  tqdm OK')"        2>/dev/null || log_error "  tqdm MISSING -> pip install 'tqdm${TQDM_CONSTRAINT}'"
     echo "" >&2
     log_error "Please install missing packages manually and retry"
     log_info "Tip: re-run this script, completed steps will be skipped automatically"
@@ -823,6 +857,33 @@ fi
 DEPLOYED_MODES=()
 FAILED_MODES=()
 
+# Dynamic model file discovery
+# If filenames in models/ don't match MODEL_FILE_MAP, auto-update the mapping
+for mode in "${TARGET_MODES[@]}"; do
+    models_dir="${MODELS_DIRS[$mode]:-}"
+    if [ -z "$models_dir" ] || [ ! -d "$models_dir" ]; then
+        continue
+    fi
+    expected="${MODEL_FILE_MAP[$mode]}"
+    if [ -e "$models_dir/$expected" ]; then
+        continue  # Expected file exists, no adjustment needed
+    fi
+    # Expected not found, try auto-discovery
+    if [ "$mode" = "fast" ]; then
+        FOUND_PT=$(find "$models_dir" -maxdepth 1 -name "*.pt" -not -name "README*" -print -quit 2>/dev/null)
+        if [ -n "$FOUND_PT" ]; then
+            MODEL_FILE_MAP[$mode]="$(basename "$FOUND_PT")"
+            log_warn "  Auto-discovered fast model: $(basename "$FOUND_PT") (replacing $expected)"
+        fi
+    elif [ "$mode" = "slow-sequential" ]; then
+        FOUND_DIR=$(find "$models_dir" -maxdepth 1 -type d -name "*sequential*" -print -quit 2>/dev/null)
+        if [ -n "$FOUND_DIR" ]; then
+            MODEL_FILE_MAP[$mode]="$(basename "$FOUND_DIR")"
+            log_warn "  Auto-discovered slow-sequential model: $(basename "$FOUND_DIR") (replacing $expected)"
+        fi
+    fi
+done
+
 for mode in "${TARGET_MODES[@]}"; do
     model_target="${MODEL_FILE_MAP[$mode]}"
     models_dir="${MODELS_DIRS[$mode]:-}"
@@ -830,19 +891,38 @@ for mode in "${TARGET_MODES[@]}"; do
     log_info "------------------------------"
     log_info "Deploying ${mode} model: ${model_target}"
 
-    # Idempotent: skip if already deployed
+    # Idempotent: skip if deployed AND matches source (detect interrupted copies)
     if [ -d "$MW_DIR/$model_target" ] || [ -f "$MW_DIR/$model_target" ]; then
-        if [ -d "$MW_DIR/$model_target" ]; then
-            FC=$(find "$MW_DIR/$model_target" -type f | wc -l)
-            TS=$(du -sb "$MW_DIR/$model_target" 2>/dev/null | cut -f1)
-            log_skip "  ${mode} model already deployed (${FC} files, $(format_size $TS)), skipping"
+        SKIP_DEPLOY=true
+        if [ -n "$models_dir" ] && [ -d "$models_dir" ]; then
+            if [ -f "$models_dir/$model_target" ] || [ -d "$models_dir/$model_target" ]; then
+                SRC_SIZE=$(du -sb "$models_dir/$model_target" 2>/dev/null | cut -f1)
+                DST_SIZE=$(du -sb "$MW_DIR/$model_target" 2>/dev/null | cut -f1)
+                SRC_FC=$(find "$models_dir/$model_target" -type f 2>/dev/null | wc -l)
+                DST_FC=$(find "$MW_DIR/$model_target" -type f 2>/dev/null | wc -l)
+                if [ "$SRC_SIZE" = "$DST_SIZE" ] && [ "$SRC_FC" = "$DST_FC" ]; then
+                    log_skip "  ${mode} model already deployed (${DST_FC} files, $(format_size $DST_SIZE)), skipping"
+                else
+                    log_warn "  ${mode} model incomplete (src: ${SRC_FC} files $(format_size $SRC_SIZE), dst: ${DST_FC} files $(format_size $DST_SIZE)), re-copying"
+                    rm -rf "$MW_DIR/$model_target"
+                    SKIP_DEPLOY=false
+                fi
+            fi
         else
-            FS=$(stat -c%s "$MW_DIR/$model_target" 2>/dev/null || stat -f%z "$MW_DIR/$model_target" 2>/dev/null || echo 0)
-            log_skip "  ${mode} model already deployed ($(format_size $FS)), skipping"
+            if [ -d "$MW_DIR/$model_target" ]; then
+                FC=$(find "$MW_DIR/$model_target" -type f | wc -l)
+                TS=$(du -sb "$MW_DIR/$model_target" 2>/dev/null | cut -f1)
+                log_skip "  ${mode} model already deployed (${FC} files, $(format_size $TS)), skipping"
+            else
+                FS=$(stat -c%s "$MW_DIR/$model_target" 2>/dev/null || stat -f%z "$MW_DIR/$model_target" 2>/dev/null || echo 0)
+                log_skip "  ${mode} model already deployed ($(format_size $FS)), skipping"
+            fi
         fi
-        DEPLOYED_MODES+=("$mode")
-        echo "" >&2
-        continue
+        if [ "$SKIP_DEPLOY" = "true" ]; then
+            DEPLOYED_MODES+=("$mode")
+            echo "" >&2
+            continue
+        fi
     fi
 
     MODEL_SRC=""
@@ -965,7 +1045,7 @@ log_step "[7/8] Environment diagnostics"
 cat > "$WORK_DIR/check_signalp_env.sh" << 'DIAG_SCRIPT'
 #!/bin/bash
 echo "╔════════════════════════════════════════════════════════╗"
-echo "║           SignalP 6.0 Environment Diagnostics (v15)     ║"
+echo "║           SignalP Environment Diagnostics (v15)        ║"
 echo "╚════════════════════════════════════════════════════════╝"
 echo ""
 echo "1. Python environment:"
@@ -990,18 +1070,26 @@ if [ -n "$SIGNALP_PATH" ]; then
     if [ -d "$MW_DIR" ]; then
         echo "   Dir: $MW_DIR"
         echo ""
-        if [ -f "$MW_DIR/distilled_model_signalp6.pt" ]; then
-            SIZE=$(du -sh "$MW_DIR/distilled_model_signalp6.pt" 2>/dev/null | cut -f1)
-            echo "   OK fast (distilled_model_signalp6.pt) - $SIZE"
-        else
-            echo "   MISSING fast (distilled_model_signalp6.pt)"
-        fi
-        if [ -d "$MW_DIR/sequential_models_signalp6" ]; then
-            FILE_COUNT=$(find "$MW_DIR/sequential_models_signalp6" -type f | wc -l)
-            TOTAL_SIZE=$(du -sh "$MW_DIR/sequential_models_signalp6" 2>/dev/null | cut -f1)
-            echo "   OK slow-sequential (sequential_models_signalp6/) - ${FILE_COUNT} files, ${TOTAL_SIZE}"
-        else
-            echo "   MISSING slow-sequential (sequential_models_signalp6/)"
+        # Dynamically list model_weights contents, no hardcoded filenames
+        for item in "$MW_DIR"/*; do
+            [ -e "$item" ] || continue
+            name=$(basename "$item")
+            if [ "$name" = "README.md" ]; then
+                continue
+            fi
+            if [ -d "$item" ]; then
+                FILE_COUNT=$(find "$item" -type f | wc -l)
+                TOTAL_SIZE=$(du -sh "$item" 2>/dev/null | cut -f1)
+                echo "   OK ${name}/ - ${FILE_COUNT} files, ${TOTAL_SIZE}"
+            elif [ -f "$item" ]; then
+                SIZE=$(du -sh "$item" 2>/dev/null | cut -f1)
+                echo "   OK ${name} - ${SIZE}"
+            fi
+        done
+        # Check if empty
+        NON_README=$(find "$MW_DIR" -maxdepth 1 -not -name "README.md" -not -name "model_weights" -not -name "." -print -quit 2>/dev/null)
+        if [ -z "$NON_README" ]; then
+            echo "   WARNING: Empty dir (README.md only)"
         fi
     else
         echo "   MISSING model_weights directory"
@@ -1026,7 +1114,7 @@ log_step "[8/8] Final verification"
 
 if conda run -n signalp6 signalp6 --help > /dev/null 2>&1; then
     echo "" >&2
-    echo "Installation successful! SignalP 6.0 is ready" >&2
+    echo "Installation successful! SignalP is ready" >&2
     echo "" >&2
     echo "Installed modes:" >&2
     for dm in "${DEPLOYED_MODES[@]}"; do
